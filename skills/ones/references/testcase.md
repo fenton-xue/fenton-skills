@@ -9,7 +9,7 @@
 
 参数：
 
-- `test_case_id: str | None = None`，可选。推荐的用例 ID/编号查询入口，例如 `185627` 或其他 ONES 用例编号/ID。
+- `test_case_id: str | None = None`，可选。推荐的用例 ID/编号查询入口，传入纯数字，例如 `185627`。如果用户提供 `T185627` 这类带 `T` 前缀的编号，先去掉 `T`，再用 `185627` 查询。
 - `module_url: str | None = None`，可选。ONES 测试用例模块链接，例如 `https://1s.oristand.com/project/#/testcase/team/63FL1oSZ/plan/RNA3SLPj/library/8WeKJafQ/module/7zWxxxgo`。
 - `name: str | None = None`，可选。配合 `module_url` 使用时表示用例名称。
 

@@ -1,12 +1,12 @@
 # Wiki
 
-当前 Wiki 只开放两个工具：`get_wiki_page_by_url` 和 `import_wiki_markdown_page`。不要调用或描述旧的页面列表、草稿、删除、正文更新或强制覆盖发布流程。
+当前 Wiki 开放三个工具：`get_wiki_page_by_url`、`export_wiki_page_markdown` 和 `import_wiki_markdown_page`。不要调用或描述未暴露的 Wiki 更新、删除或列表工具。
 
 ## 可用工具
 
 ### `get_wiki_page_by_url`
 
-用途：通过 ONES Wiki 页面链接获取页面详情并转换为 Markdown。
+用途：通过 ONES Wiki 页面链接获取页面内容。
 
 参数：
 
@@ -14,8 +14,25 @@
 
 行为：
 
-- 用户给 Wiki 链接时，调用该工具获取页面内容。
+- 用户给 Wiki 链接并要求查看或读取页面时，调用该工具获取页面内容。
+
+### `export_wiki_page_markdown`
+
+用途：通过 ONES Wiki 页面链接导出本地 Markdown 文件。
+
+参数：
+
+- `wiki_url: str`，必填，ONES Wiki 页面链接。
+- `output_dir: str | None = None`，可选，导出目录。
+- `filename: str | None = None`，可选，导出的 Markdown 文件名。
+- `version: int | None = None`，可选，导出指定版本。
+
+行为：
+
+- 用户要求导出 Wiki 时，优先调用该工具，不要用读取工具手动落盘。
 - 如果用户要求导出，先向用户确认保存路径，再正式创建 Markdown 文件。文件的第一个一级标题表示文件名；写入正文时去掉这个一级标题。
+- 工具会写出 Markdown 文件，并把正文图片保存到同级 `assets/` 后改为相对路径；图片下载失败时保留原链接，并把失败信息反馈给用户。
+- 该工具只导出本地文件，不更新 Wiki。
 
 ### `import_wiki_markdown_page`
 

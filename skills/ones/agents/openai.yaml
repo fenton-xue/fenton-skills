@@ -1,13 +1,13 @@
 interface:
   display_name: "ONES MCP"
   short_description: "ONES 测试用例与 Wiki MCP 工作流"
-  default_prompt: "使用 $ones 通过 ones-mcp-tools 查询或写入单条 ONES 测试用例，读取 Wiki 链接，或导入 Markdown 新建 Wiki 子页面。"
+  default_prompt: "使用 $ones 通过 ones-mcp-tools 查询或写入单条 ONES 测试用例，读取或导出 Wiki 链接，或导入 Markdown 新建 Wiki 子页面。"
 
 dependencies:
   tools:
     - type: "mcp"
       value: "ones-mcp-tools"
-      description: "ONES 旧版 Open API MCP Server，暴露 find_test_cases、upsert_test_case、get_wiki_page_by_url、import_wiki_markdown_page。"
+      description: "ONES 旧版 Open API MCP Server，暴露 find_test_cases、upsert_test_case、get_wiki_page_by_url、export_wiki_page_markdown、import_wiki_markdown_page。"
       transport: "stdio"
 
 policy:
