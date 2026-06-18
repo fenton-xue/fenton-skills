@@ -1,6 +1,6 @@
 ---
 name: ones
-description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新增/更新 ONES 测试用例，或读取/导出 ONES Wiki 链接、把 Markdown 导入为 Wiki 子页面。"
+description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新增/更新 ONES 测试用例，或读取/导出 ONES Wiki 链接、处理 Wiki 导出图片、把 Markdown 导入为 Wiki 子页面。"
 ---
 
 # ONES MCP 工具
@@ -24,4 +24,5 @@ description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新
 
 - 通过 ONES Wiki 页面链接读取页面
 - 把 Wiki 页面导出为本地 Markdown 文件
+- 处理 Wiki 导出图片资源
 - 在指定父 Wiki 页面下导入 Markdown，新建协同 Wiki 子页面

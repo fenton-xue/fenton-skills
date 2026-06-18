@@ -1,6 +1,6 @@
 # Wiki
 
-当前 Wiki 开放三个工具：`get_wiki_page_by_url`、`export_wiki_page_markdown` 和 `import_wiki_markdown_page`。不要调用或描述未暴露的 Wiki 更新、删除或列表工具。
+当前 Wiki 面向用户的页面流程主要使用 `get_wiki_page_by_url` 和 `import_wiki_markdown_page`。`download_wiki_image_resource` 仅作为本地导出图片处理脚本使用的图片下载能力，不单独作为用户流程描述。不要调用或描述未暴露的 Wiki 更新、删除或列表工具。
 
 ## 可用工具
 
@@ -15,24 +15,11 @@
 行为：
 
 - 用户给 Wiki 链接并要求查看或读取页面时，调用该工具获取页面内容。
-
-### `export_wiki_page_markdown`
-
-用途：通过 ONES Wiki 页面链接导出本地 Markdown 文件。
-
-参数：
-
-- `wiki_url: str`，必填，ONES Wiki 页面链接。
-- `output_dir: str | None = None`，可选，导出目录。
-- `filename: str | None = None`，可选，导出的 Markdown 文件名。
-- `version: int | None = None`，可选，导出指定版本。
-
-行为：
-
-- 用户要求导出 Wiki 时，优先调用该工具，不要用读取工具手动落盘。
+- 用户要求导出 Wiki 为本地 Markdown 时，也先调用该工具获取结构化页面数据。
+- 创建 Markdown 时不要盲用返回的 `markdown/body_markdown`，因为它可能缺失表格、列表、代码块。优先基于 `online_page.content` 的结构化内容还原正文。
+- 导出文件名优先使用返回的 `export_filename`，否则使用 `page.title + ".md"`。
 - 如果用户要求导出，先向用户确认保存路径，再正式创建 Markdown 文件。文件的第一个一级标题表示文件名；写入正文时去掉这个一级标题。
-- 工具会写出 Markdown 文件，并把正文图片保存到同级 `assets/` 后改为相对路径；图片下载失败时保留原链接，并把失败信息反馈给用户。
-- 该工具只导出本地文件，不更新 Wiki。
+- 如果导出的 Markdown 里含有图片，则使用本地导出图片处理脚本处理。
 
 ### `import_wiki_markdown_page`
 
@@ -59,3 +46,25 @@
   "markdown": "# 接口巡检说明\n\n正文内容..."
 }
 ```
+
+## 本地导出图片处理脚本
+
+固定脚本：`scripts/process_wiki_images.py`
+
+用途：批量扫描本地 Markdown 中的图片引用，下载或复制图片到同级 `assets/`，并把成功处理的图片引用改写为本地相对路径。脚本处理 ONES Wiki 图片时使用 MCP 工具 `download_wiki_image_resource` 下载资源。
+
+基本用法：
+
+```bash
+python "$SKILL_DIR\scripts\process_wiki_images.py" "<待处理 Markdown 文件路径>" --wiki-url "<ONES Wiki 页面链接>" --token "<get_wiki_page_by_url 返回的 online_page.token>"
+```
+
+脚本行为：
+
+- 支持处理 `![](xxx.png)`、`![image](xxx.png)`、远程图片 URL、本地同目录图片文件。
+- 成功下载或复制后改写为 `![alt](assets/xxx.png)`。
+- 失败时保留原引用，不破坏 Markdown。
+- 写出 `<原文件>.images.report.json`，记录成功、失败和候选下载 URL。
+- ONES Wiki 图片资源需要 `online_page.token`；运行脚本时通过 `--token` 传入。
+- 脚本使用的 MCP 图片下载工具是 `download_wiki_image_resource`，入参包括资源绝对 URL、输出目录和可选文件名。资源 URL 必须带 `get_wiki_page_by_url` 返回的 `online_page.token`；只传不带 token 的 URL 会返回 `403 Forbidden resource`。
+- 资源 URL 使用绝对地址，形态为 `/wiki/api/wiki/editor/{team_id}/{ref_uuid}/resources/{filename}?token={online_page.token}`。
