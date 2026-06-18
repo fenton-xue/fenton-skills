@@ -1,0 +1,14 @@
+interface:
+  display_name: "ONES"
+  short_description: "ONES 旧版 Open API MCP 工具指南"
+  default_prompt: "使用 $ones 通过 MCP 工具查找/新增/更新 ONES 测试用例，读取 Wiki 链接，或导入 Markdown 新建 Wiki 子页面。"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "ones-mcp-tools"
+      description: "基于 ONES 旧版 Open API 的本地 ONES MCP Server"
+      transport: "stdio"
+
+policy:
+  allow_implicit_invocation: true
