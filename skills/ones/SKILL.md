@@ -11,7 +11,7 @@ description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新
 
 ## 测试用例
 
-读取 `testcase.md`，当用户提到：
+读取 `references/testcase.md`，当用户提到：
 
 - 按 ONES 用例 ID、编号、`uuid` 或 `key` 查找测试用例
 - 通过测试用例模块 URL 和用例名称查找用例
@@ -20,7 +20,7 @@ description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新
 
 ## Wiki
 
-读取 `wiki.md`，当用户提到：
+读取 `references/wiki.md`，当用户提到：
 
 - 通过 ONES Wiki 页面链接读取页面
 - 把 Wiki 页面导出为本地 Markdown 文件
