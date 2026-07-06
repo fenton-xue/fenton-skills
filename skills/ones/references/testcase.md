@@ -5,19 +5,21 @@
 
 ### `find_test_cases`
 
-用途：查找测试用例。当前只保留两种高层用法：用例 ID/编号查询，或模块 URL + 用例名称查询。
+用途：查找测试用例。当前只保留两种高层用法：用例 ID/编号查询，或模块 URL 查询；模块 URL 查询可选用例名称过滤。
 
 参数：
 
 - `test_case_id: str | None = None`，可选。推荐的用例 ID/编号查询入口，传入纯数字，例如 `185627`。如果用户提供 `T185627` 这类带 `T` 前缀的编号，先去掉 `T`，再用 `185627` 查询。
-- `module_url: str | None = None`，可选。ONES 测试用例模块链接，例如 `https://1s.oristand.com/project/#/testcase/team/63FL1oSZ/plan/RNA3SLPj/library/8WeKJafQ/module/7zWxxxgo`。
-- `name: str | None = None`，可选。配合 `module_url` 使用时表示用例名称。
+- `module_url: str | None = None`，可选。ONES 测试用例模块链接，支持带或不带 `plan_id` 的链接，例如 `https://1s.oristand.com/project/#/testcase/team/63FL1oSZ/plan/RNA3SLPj/library/8WeKJafQ/module/7zWxxxgo` 或 `https://1s.oristand.com/project/#/testcase/team/63FL1oSZ/library/8WeKJafQ/module/7zWxxxgo`。
+- `name: str | None = None`，可选。配合 `module_url` 使用时表示用例名称过滤条件；为空时返回模块范围内全部用例。
 
 
 行为：
 
 - 用例 ID/编号查询不需要用例库 ID。
-- 模块 URL 查询会包含该模块和所有子模块；不要把它解释成只查 URL 指向模块本身。
+- 模块 URL 查询支持带或不带 `plan_id` 的链接。
+- 模块 URL 查询范围为该模块及其所有子模块。
+- 模块 URL 查询的 `name` 是可选过滤条件；为空时返回该模块及所有子模块下的全部用例。
 - 如果找不到用例，如实反馈给用户；必要时让用户确认用例 ID/编号、模块 URL 或用例名称。
 
 1. 按用例 ID/编号查询示例：
@@ -30,7 +32,7 @@
 
 实测 `test_case_id="185627"` 可命中：`uuid=RCs8mNAt`、`name=#84358-01-发送邮件校验失败日志`、`number=185627`、`module_uuid=Pv3cx36Z`。
 
-2. 按模块 URL + 用例名称查询示例：
+2. 按模块 URL 查询并用名称过滤示例：
 
 ```json
 {

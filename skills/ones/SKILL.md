@@ -14,7 +14,7 @@ description: "Use when 用户需要通过 ones-mcp-tools MCP Server 查找或新
 读取 `references/testcase.md`，当用户提到：
 
 - 按 ONES 用例 ID、编号、`uuid` 或 `key` 查找测试用例
-- 通过测试用例模块 URL 和用例名称查找用例
+- 通过测试用例模块 URL 查找用例，可选用例名称过滤
 - 新增或更新单条测试用例
 - 测试步骤、预期结果、模块 URL、模块路径、`library_id`
 
