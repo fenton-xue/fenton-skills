@@ -5,7 +5,26 @@ description: 使用 Computer Use 执行人工测试用例，解析“模块、�
 
 # 测试用例执行
 
-将人工测试用例作为只读输入，执行前生成内部执行计划，通过 Computer Use 完成功能验证，并将每次执行结果单独保存。
+将人工测试用例作为只读输入，执行前生成内部执行计划，通过 Computer Use 完成功能验证，并将执行产物集中保存。
+
+## 创建执行目录
+
+将源测试用例文件所在的需求目录作为 `<需求目录>`。调用本 SKILL 后，先创建 `<需求目录>/execute-testcase/`。执行产物使用以下结构：
+
+```text
+<需求目录>/
+└── execute-testcase/
+    ├── execution-plan.yaml
+    └── runs/
+        ├── result-{run_id}.yaml
+        └── screenshots/
+```
+
+将本次流程生成的执行计划、执行结果和截图全部保存在 `execute-testcase/` 中：
+
+- 执行计划：`<需求目录>/execute-testcase/execution-plan.yaml`
+- 执行结果：`<需求目录>/execute-testcase/runs/result-{run_id}.yaml`
+- 截图：`<需求目录>/execute-testcase/runs/screenshots/`
 
 ## 读取测试用例
 
@@ -41,6 +60,7 @@ var parsedTestcases = parseTestcases(sourceText);
 6. Agent 根据 `page_id` 读取页面知识，确定运行环境下的页面 URL。
 7. 将步骤整理为 Agent 可执行的操作，将预期结果整理为页面上可观察的结果。
 8. 保持原始业务规则、测试数据、数量和状态不变。
+9. 将完整执行计划写入 `<需求目录>/execute-testcase/execution-plan.yaml`。
 
 需要确认内部结构时读取 [references/execution-plan.example.yaml](references/execution-plan.example.yaml)。
 
@@ -50,7 +70,7 @@ var parsedTestcases = parseTestcases(sourceText);
 
 ## 用户 Review
 
-生成完整执行计划后，将全部用例、`module_path`、`precondition`、`page_id`、`action` 和 `expected` 展示给用户，并结束当前轮次。
+生成并保存完整执行计划后，将全部用例、`module_path`、`precondition`、`page_id`、`action` 和 `expected` 展示给用户，并结束当前轮次。
 
 收到用户明确确认后，从下一轮开始初始化结果并执行页面操作。用户提出修改时，更新执行计划并再次提交 Review。
 
@@ -83,7 +103,7 @@ var parsedTestcases = parseTestcases(sourceText);
 
 ## 保存执行结果
 
-将结果保存到测试用例所在目录的 `runs/result.yaml`，截图保存到 `runs/screenshots/`。
+将结果保存到 `<需求目录>/execute-testcase/runs/result-{run_id}.yaml`，截图保存到 `<需求目录>/execute-testcase/runs/screenshots/`。
 
 使用 [scripts/result-record.mjs](scripts/result-record.mjs) 初始化结果。脚本自动填充系统、环境、执行时间、用例名称、`module_path`、`precondition`、`page_id`、步骤和预期结果，`actual_url` 初始为空。
 
@@ -95,9 +115,16 @@ var executionResult = resultTools.createResult({
   executionPlan,
   environment: "PRE",
 });
+var pathTestcase = await import("node:path");
+var resultPath = pathTestcase.join(
+  "<需求目录>",
+  "execute-testcase",
+  "runs",
+  `result-${executionResult.run_id}.yaml`,
+);
 await resultTools.writeResult({
   result: executionResult,
-  outputPath: "<测试用例目录>/runs/result.yaml",
+  outputPath: resultPath,
 });
 ```
 
@@ -130,7 +157,7 @@ resultTools.recordStep({
 resultTools.finalizeResult({ result: executionResult });
 await resultTools.writeResult({
   result: executionResult,
-  outputPath: "<测试用例目录>/runs/result.yaml",
+  outputPath: resultPath,
 });
 ```
 
@@ -175,7 +202,7 @@ var { saveScreenshot } = await import(
 
 var savedScreenshot = await saveScreenshot({
   screenshotUrl: state.screenshot.url,
-  outputDir: "<测试用例目录>/runs/screenshots",
+  outputDir: "<需求目录>/execute-testcase/runs/screenshots",
   runId: "20260730_153000",
   caseNo: 1,
   stepNo: 5,
