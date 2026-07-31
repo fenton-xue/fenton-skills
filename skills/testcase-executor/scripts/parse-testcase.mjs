@@ -1,3 +1,7 @@
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 function formatError(lineNumber, message) {
   return new Error(`Line ${lineNumber}: ${message}`);
 }
@@ -63,6 +67,7 @@ export function parseTestcases(sourceText) {
     testcases.push({
       case_name: currentCase.case_name,
       module_path: currentCase.module_path,
+      page_id: null,
       precondition: null,
       steps: numbers.map((number) => ({
         step: number,
@@ -151,5 +156,135 @@ export function parseTestcases(sourceText) {
     throw new Error("No testcases found");
   }
 
-  return { testcases };
+  return {
+    system: null,
+    testcases,
+  };
+}
+
+function yamlScalar(value) {
+  if (value === null) {
+    return "null";
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return JSON.stringify(value);
+}
+
+export function serializeExecutionPlan(executionPlan) {
+  const lines = [
+    `system: ${yamlScalar(executionPlan.system)}`,
+    "",
+    "testcases:",
+  ];
+
+  executionPlan.testcases.forEach((testcase, testcaseIndex) => {
+    if (testcaseIndex > 0) {
+      lines.push("");
+    }
+    lines.push(`  - case_name: ${yamlScalar(testcase.case_name)}`);
+    lines.push("    module_path:");
+    testcase.module_path.forEach((moduleName) => {
+      lines.push(`      - ${yamlScalar(moduleName)}`);
+    });
+    lines.push(`    page_id: ${yamlScalar(testcase.page_id)}`);
+    lines.push(`    precondition: ${yamlScalar(testcase.precondition)}`);
+    lines.push("    steps:");
+    testcase.steps.forEach((step, stepIndex) => {
+      if (stepIndex > 0) {
+        lines.push("");
+      }
+      lines.push(`      - step: ${step.step}`);
+      lines.push(`        action: ${yamlScalar(step.action)}`);
+      lines.push(`        expected: ${yamlScalar(step.expected)}`);
+    });
+  });
+
+  return `${lines.join("\n")}\n`;
+}
+
+function requirePath(value, field) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new TypeError(`${field} must be a non-empty path`);
+  }
+  return path.resolve(value);
+}
+
+export async function writeExecutionPlan({ inputPath, outputPath }) {
+  const sourcePath = requirePath(inputPath, "inputPath");
+  const targetPath = requirePath(outputPath, "outputPath");
+  const sourceText = await readFile(sourcePath, "utf8");
+  const executionPlan = parseTestcases(sourceText);
+
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  const temporaryPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.tmp-${process.pid}-${Date.now()}`,
+  );
+  try {
+    await writeFile(temporaryPath, serializeExecutionPlan(executionPlan), {
+      encoding: "utf8",
+      flag: "wx",
+    });
+    await rename(temporaryPath, targetPath);
+  } catch (error) {
+    await rm(temporaryPath, { force: true });
+    throw error;
+  }
+
+  return {
+    executionPlan,
+    outputPath: targetPath,
+    testcaseCount: executionPlan.testcases.length,
+  };
+}
+
+function parseCliArguments(args) {
+  const options = {};
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument !== "--input" && argument !== "--output") {
+      throw new Error(`Unsupported argument: ${argument}`);
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      throw new Error(`Missing value for ${argument}`);
+    }
+    const key = argument === "--input" ? "inputPath" : "outputPath";
+    if (options[key]) {
+      throw new Error(`Duplicate argument: ${argument}`);
+    }
+    options[key] = value;
+    index += 1;
+  }
+
+  if (!options.inputPath || !options.outputPath) {
+    throw new Error(
+      "Usage: node parse-testcase.mjs --input <source.md> --output <execution-plan.yaml>",
+    );
+  }
+  return options;
+}
+
+async function main() {
+  const options = parseCliArguments(process.argv.slice(2));
+  const result = await writeExecutionPlan(options);
+  process.stdout.write(
+    `${JSON.stringify({
+      outputPath: result.outputPath,
+      testcaseCount: result.testcaseCount,
+    })}\n`,
+  );
+}
+
+const isMain =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isMain) {
+  main().catch((error) => {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  });
 }
