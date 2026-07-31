@@ -1,0 +1,77 @@
+import { constants } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+function requireNonEmptyString(value, field) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new TypeError(`${field} must be a non-empty string`);
+  }
+  return value.trim();
+}
+
+function requirePositiveInteger(value, field) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${field} must be a positive integer`);
+  }
+  return value;
+}
+
+function padNumber(value) {
+  return String(value).padStart(2, "0");
+}
+
+export async function saveScreenshot({
+  screenshotUrl,
+  outputDir,
+  runId,
+  caseNo,
+  stepNo,
+  shotNo,
+  label,
+}) {
+  const sourceUrl = requireNonEmptyString(screenshotUrl, "screenshotUrl");
+  const targetDir = requireNonEmptyString(outputDir, "outputDir");
+  const normalizedRunId = requireNonEmptyString(runId, "runId");
+  const normalizedLabel = requireNonEmptyString(label, "label");
+
+  if (!path.isAbsolute(targetDir)) {
+    throw new TypeError("outputDir must be an absolute path");
+  }
+  if (!/^\d{8}_\d{6}$/.test(normalizedRunId)) {
+    throw new TypeError("runId must use YYYYMMDD_HHmmss format");
+  }
+  if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(normalizedLabel)) {
+    throw new TypeError(
+      "label must contain lowercase letters, digits, and single underscores only",
+    );
+  }
+
+  const parsedSourceUrl = new URL(sourceUrl);
+  if (parsedSourceUrl.protocol !== "file:") {
+    throw new TypeError("screenshotUrl must be a file:// URL");
+  }
+
+  const normalizedCaseNo = requirePositiveInteger(caseNo, "caseNo");
+  const normalizedStepNo = requirePositiveInteger(stepNo, "stepNo");
+  const normalizedShotNo = requirePositiveInteger(shotNo, "shotNo");
+  const filename =
+    `${normalizedRunId}_case${padNumber(normalizedCaseNo)}` +
+    `_step${padNumber(normalizedStepNo)}_${padNumber(normalizedShotNo)}` +
+    `_${normalizedLabel}.png`;
+
+  await mkdir(targetDir, { recursive: true });
+
+  const absolutePath = path.join(targetDir, filename);
+  await copyFile(
+    fileURLToPath(parsedSourceUrl),
+    absolutePath,
+    constants.COPYFILE_EXCL,
+  );
+
+  return {
+    filename,
+    absolutePath,
+    relativePath: path.posix.join(path.basename(targetDir), filename),
+  };
+}

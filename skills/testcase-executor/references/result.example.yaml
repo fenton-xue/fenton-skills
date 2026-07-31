@@ -1,0 +1,60 @@
+system: QC
+environment: PRE
+run_id: "20260730_153000"
+started_at: "2026-07-30 15:30:00"
+finished_at: "2026-07-30 15:35:20"
+result: PASSED
+
+testcases:
+  - case_name: ZJXT-126499-01-组合货号关联多个子货号
+    module_path:
+      - QC测试
+      - QC报告审核
+      - 审核明细
+      - 组合货号查询-结果准确性
+    page_id: qc-report-review
+    actual_url: https://webqc-pre.baimeihome.com/busi/qc-report-review/list
+    result: PASSED
+    precondition: null
+    steps:
+      - step: 1
+        action: 在组合货号查询框输入“CBSKUTEST003”，其他查询条件保持为空，点击“查询”按钮
+        expected: 查询结果总数为22条
+        actual: 查询结果总数为22条
+        result: PASSED
+        screenshots:
+          - screenshots/20260730_153000_case01_step01_01_result.png
+
+      - step: 2
+        action: 统计查询结果中货号为“AA12P30391R”的审核明细
+        expected: 货号为“AA12P30391R”的审核明细共7条
+        actual: 货号为“AA12P30391R”的审核明细共7条
+        result: PASSED
+        screenshots:
+          - screenshots/20260730_153000_case01_step02_01_count.png
+
+      - step: 3
+        action: 统计查询结果中货号为“N616P199735B”的审核明细
+        expected: 货号为“N616P199735B”的审核明细共15条
+        actual: 货号为“N616P199735B”的审核明细共15条
+        result: PASSED
+        screenshots:
+          - screenshots/20260730_153000_case01_step03_01_count.png
+
+      - step: 4
+        action: 查看查询结果中是否存在货号“N616P199735A”
+        expected: 查询结果中不存在货号“N616P199735A”
+        actual: 查询结果中未发现货号“N616P199735A”
+        result: PASSED
+        screenshots:
+          - screenshots/20260730_153000_case01_step04_01_result.png
+
+      - step: 5
+        action: 逐条查看22条审核明细的组合货号
+        expected: 22条审核明细的组合货号均非空并显示“CBSKUTEST003”
+        actual: 22条审核明细的组合货号均显示“CBSKUTEST003”
+        result: PASSED
+        screenshots:
+          - screenshots/20260730_153000_case01_step05_01_page1.png
+          - screenshots/20260730_153000_case01_step05_02_page2.png
+          - screenshots/20260730_153000_case01_step05_03_page3.png
