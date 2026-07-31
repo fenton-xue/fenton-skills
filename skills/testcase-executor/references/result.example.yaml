@@ -1,4 +1,5 @@
 system: QC
+prd_name: ZJXT-126499 【线上bug】QC报告审核明细页面，组合货号搜索的时候会查出组合货号为空的数据
 environment: PRE
 run_id: "20260730_153000"
 started_at: "2026-07-30 15:30:00"

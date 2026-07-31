@@ -124,12 +124,17 @@ export function createResult({
     throw new TypeError("executionPlan must be an object");
   }
   const system = requireString(executionPlan.system, "executionPlan.system");
+  const prdName = requireString(
+    executionPlan.prd_name,
+    "executionPlan.prd_name",
+  );
   if (!Array.isArray(executionPlan.testcases) || executionPlan.testcases.length === 0) {
     throw new TypeError("executionPlan.testcases must be a non-empty array");
   }
   const started = formatTime(startedAt, timeZone);
   return {
     system,
+    prd_name: prdName,
     environment: requireString(environment, "environment").toUpperCase(),
     run_id: started.runId,
     started_at: started.timestamp,

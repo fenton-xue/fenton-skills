@@ -17,6 +17,7 @@ description: 使用 Computer Use 执行人工测试用例，解析“模块、�
     ├── execution-plan.yaml
     └── runs/
         ├── result-{run_id}.yaml
+        ├── report-{run_id}.html
         └── screenshots/
 ```
 
@@ -24,6 +25,7 @@ description: 使用 Computer Use 执行人工测试用例，解析“模块、�
 
 - 执行计划：`<需求目录>/execute-testcase/execution-plan.yaml`
 - 执行结果：`<需求目录>/execute-testcase/runs/result-{run_id}.yaml`
+- 执行报告：`<需求目录>/execute-testcase/runs/report-{run_id}.html`
 - 截图：`<需求目录>/execute-testcase/runs/screenshots/`
 
 ## 读取测试用例
@@ -45,18 +47,19 @@ node "<testcase-executor目录>/scripts/parse-testcase.mjs" \
   --output "<需求目录>/execute-testcase/execution-plan.yaml"
 ```
 
-脚本创建输出目录并写入 YAML。基础执行计划包含 `system: null`，每条用例包含 `case_name`、`module_path`、`page_id: null`、`precondition: null` 和 `steps`。
+脚本创建输出目录并写入 YAML。基础执行计划包含 `system: null` 和 `prd_name: null`，每条用例包含 `case_name`、`module_path`、`page_id: null`、`precondition: null` 和 `steps`。
 
 ## 准备执行计划
 
 1. 从项目上下文、文件路径或用户指令确定 `system`，写入执行计划。
-2. 使用 `module_path` 查找项目页面知识：
+2. 将 `<需求目录>` 的最末级目录名称写入 `prd_name`，不包含 `execute-testcase`。
+3. 使用 `module_path` 查找项目页面知识：
    - `.agent/page/{system}/menu.yaml`
    - `.agent/page/{system}/{page_id}.yaml`
-3. 为每条用例填写稳定的 `page_id`。
-4. 保留脚本生成的 `case_name`、`module_path`、`action` 和 `expected`。
-5. 保留 `precondition`；源用例未提供时使用 `null`，该字段位于 `steps` 正前方。
-6. 保存更新后的 `<需求目录>/execute-testcase/execution-plan.yaml`。
+4. 为每条用例填写稳定的 `page_id`。
+5. 保留脚本生成的 `case_name`、`module_path`、`action` 和 `expected`。
+6. 保留 `precondition`；源用例未提供时使用 `null`，该字段位于 `steps` 正前方。
+7. 保存更新后的 `<需求目录>/execute-testcase/execution-plan.yaml`。
 
 需要确认内部结构时读取 [references/execution-plan.example.yaml](references/execution-plan.example.yaml)。
 
@@ -75,10 +78,12 @@ node "<testcase-executor目录>/scripts/parse-testcase.mjs" \
 1. 根据页面知识进入目标页面。
 2. 根据页面识别特征确认当前页面。
 3. 按顺序执行每个 `action`。
-4. 每完成一步，重新获取当前页面状态。
-5. 将实际表现与对应 `expected` 比较。
-6. 记录每一步的 `actual` 和 `result`。
-7. 汇总用例结果和整体结果。
+4. 对会触发页面加载的操作，持续读取当前页面状态，检查触发按钮、进度指示器、加载遮罩和骨架屏。
+5. 仅当触发按钮恢复可操作，且页面中的加载状态全部消失后，重新获取完整页面状态并开始断言。
+6. Accessibility 状态未暴露 Loading 时读取截图判断；截图仍无法确认时，通过浏览器 Network 确认本次操作触发的接口已完成。
+7. 将实际表现与对应 `expected` 比较。
+8. 记录每一步的 `actual` 和 `result`。
+9. 汇总用例结果和整体结果。
 
 使用以下异常处理规则：
 
@@ -101,7 +106,7 @@ node "<testcase-executor目录>/scripts/parse-testcase.mjs" \
 
 将结果保存到 `<需求目录>/execute-testcase/runs/result-{run_id}.yaml`，截图保存到 `<需求目录>/execute-testcase/runs/screenshots/`。
 
-使用 [scripts/result-record.mjs](scripts/result-record.mjs) 初始化结果。脚本自动填充系统、环境、执行时间、用例名称、`module_path`、`precondition`、`page_id`、步骤和预期结果，`actual_url` 初始为空。
+使用 [scripts/result-record.mjs](scripts/result-record.mjs) 初始化结果。脚本自动填充系统、需求名称、环境、执行时间、用例名称、`module_path`、`precondition`、`page_id`、步骤和预期结果，`actual_url` 初始为空。
 
 ```js
 var resultTools = await import(
@@ -117,6 +122,12 @@ var resultPath = pathTestcase.join(
   "execute-testcase",
   "runs",
   `result-${executionResult.run_id}.yaml`,
+);
+var reportPath = pathTestcase.join(
+  "<需求目录>",
+  "execute-testcase",
+  "runs",
+  `report-${executionResult.run_id}.html`,
 );
 await resultTools.writeResult({
   result: executionResult,
@@ -155,7 +166,16 @@ await resultTools.writeResult({
   result: executionResult,
   outputPath: resultPath,
 });
+var { writeHtmlReport } = await import(
+  "<testcase-executor目录>/scripts/generate-html-report.mjs"
+);
+await writeHtmlReport({
+  result: executionResult,
+  outputPath: reportPath,
+});
 ```
+
+完成全部用例并写入最终结果后生成一次 HTML 报告。报告标题使用“`系统-需求名称`”。报告导航根据 `module_path` 的实际层数递归分组，各级模块支持折叠；点击导航中的用例时自动展开并定位到对应的用例卡片。报告按用例和步骤展示 `action`、`expected`、`actual`、`result` 及对应截图。向用户提供报告文件链接。
 
 Agent填写用例的 `actual_url`，以及每一步的 `actual`、`status` 和 `screenshots`。需要确认最终格式时读取 [references/result.example.yaml](references/result.example.yaml)。
 

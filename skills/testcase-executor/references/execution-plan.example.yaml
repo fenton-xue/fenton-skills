@@ -1,4 +1,5 @@
 system: QC
+prd_name: ZJXT-126499 【线上bug】QC报告审核明细页面，组合货号搜索的时候会查出组合货号为空的数据
 
 testcases:
   - case_name: ZJXT-126499-01-组合货号关联多个子货号

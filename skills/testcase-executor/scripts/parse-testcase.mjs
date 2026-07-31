@@ -158,6 +158,7 @@ export function parseTestcases(sourceText) {
 
   return {
     system: null,
+    prd_name: null,
     testcases,
   };
 }
@@ -175,6 +176,7 @@ function yamlScalar(value) {
 export function serializeExecutionPlan(executionPlan) {
   const lines = [
     `system: ${yamlScalar(executionPlan.system)}`,
+    `prd_name: ${yamlScalar(executionPlan.prd_name)}`,
     "",
     "testcases:",
   ];
