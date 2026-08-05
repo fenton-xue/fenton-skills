@@ -2,6 +2,8 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+const SUPPORTED_ENVIRONMENTS = new Set(["uat", "pre"]);
+
 function formatError(lineNumber, message) {
   return new Error(`Line ${lineNumber}: ${message}`);
 }
@@ -14,20 +16,37 @@ function requireText(value, lineNumber, field) {
   return normalized;
 }
 
-export function parseTestcases(sourceText) {
+function requirePath(value, field) {
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new TypeError(`${field} must be a non-empty path`);
+  }
+  return path.resolve(value);
+}
+
+function normalizeEnvironment(value = "uat") {
+  if (typeof value !== "string") {
+    throw new TypeError("environment must be a string");
+  }
+  const environment = value.trim().toLowerCase();
+  if (!SUPPORTED_ENVIRONMENTS.has(environment)) {
+    throw new TypeError("environment must be uat or pre");
+  }
+  return environment;
+}
+
+export function parseTestcases(sourceText, { environment = "uat" } = {}) {
   if (typeof sourceText !== "string") {
     throw new TypeError("sourceText must be a string");
   }
 
+  const normalizedEnvironment = normalizeEnvironment(environment);
   const lines = sourceText.replace(/^\uFEFF/, "").split(/\r?\n/);
   const testcases = [];
   let modulePath = [];
   let currentCase = null;
 
   function finalizeCase() {
-    if (!currentCase) {
-      return;
-    }
+    if (!currentCase) return;
     if (currentCase.module_path.length === 0) {
       throw formatError(currentCase.lineNumber, "module path is missing");
     }
@@ -51,16 +70,10 @@ export function parseTestcases(sourceText) {
         );
       }
       if (!currentCase.actions.has(number)) {
-        throw formatError(
-          currentCase.lineNumber,
-          `步骤描述${number} is missing`,
-        );
+        throw formatError(currentCase.lineNumber, `步骤描述${number} is missing`);
       }
       if (!currentCase.expectedResults.has(number)) {
-        throw formatError(
-          currentCase.lineNumber,
-          `预期结果${number} is missing`,
-        );
+        throw formatError(currentCase.lineNumber, `预期结果${number} is missing`);
       }
     });
 
@@ -68,11 +81,16 @@ export function parseTestcases(sourceText) {
       case_name: currentCase.case_name,
       module_path: currentCase.module_path,
       page_id: null,
+      actual_url: null,
+      result: null,
       precondition: null,
       steps: numbers.map((number) => ({
         step: number,
         action: currentCase.actions.get(number),
         expected: currentCase.expectedResults.get(number),
+        actual: null,
+        result: null,
+        screenshots: [],
       })),
     });
     currentCase = null;
@@ -81,23 +99,19 @@ export function parseTestcases(sourceText) {
   lines.forEach((rawLine, index) => {
     const lineNumber = index + 1;
     const line = rawLine.trim();
-    if (line === "") {
-      return;
-    }
+    if (line === "") return;
 
     const moduleMatch = line.match(
       /^([一二三四五六七八九十百]+级模块)\s*[:：]\s*(.*)$/,
     );
     if (moduleMatch) {
       finalizeCase();
-      if (modulePath.length > 0 && currentCase === null) {
-        const previousLine = lines
-          .slice(0, index)
-          .reverse()
-          .find((candidate) => candidate.trim() !== "");
-        if (previousLine?.trim().startsWith("预期结果")) {
-          modulePath = [];
-        }
+      const previousLine = lines
+        .slice(0, index)
+        .reverse()
+        .find((candidate) => candidate.trim() !== "");
+      if (previousLine?.trim().startsWith("预期结果")) {
+        modulePath = [];
       }
       modulePath.push(requireText(moduleMatch[2], lineNumber, moduleMatch[1]));
       return;
@@ -152,76 +166,41 @@ export function parseTestcases(sourceText) {
   });
 
   finalizeCase();
-  if (testcases.length === 0) {
-    throw new Error("No testcases found");
-  }
+  if (testcases.length === 0) throw new Error("No testcases found");
 
   return {
     system: null,
     prd_name: null,
+    environment: normalizedEnvironment.toUpperCase(),
+    result: null,
     testcases,
   };
 }
 
-function yamlScalar(value) {
-  if (value === null) {
-    return "null";
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  return JSON.stringify(value);
-}
-
 export function serializeExecutionPlan(executionPlan) {
-  const lines = [
-    `system: ${yamlScalar(executionPlan.system)}`,
-    `prd_name: ${yamlScalar(executionPlan.prd_name)}`,
-    "",
-    "testcases:",
-  ];
-
-  executionPlan.testcases.forEach((testcase, testcaseIndex) => {
-    if (testcaseIndex > 0) {
-      lines.push("");
-    }
-    lines.push(`  - case_name: ${yamlScalar(testcase.case_name)}`);
-    lines.push("    module_path:");
-    testcase.module_path.forEach((moduleName) => {
-      lines.push(`      - ${yamlScalar(moduleName)}`);
-    });
-    lines.push(`    page_id: ${yamlScalar(testcase.page_id)}`);
-    lines.push(`    precondition: ${yamlScalar(testcase.precondition)}`);
-    lines.push("    steps:");
-    testcase.steps.forEach((step, stepIndex) => {
-      if (stepIndex > 0) {
-        lines.push("");
-      }
-      lines.push(`      - step: ${step.step}`);
-      lines.push(`        action: ${yamlScalar(step.action)}`);
-      lines.push(`        expected: ${yamlScalar(step.expected)}`);
-    });
-  });
-
-  return `${lines.join("\n")}\n`;
+  return `window.TESTCASE_RESULT = ${JSON.stringify(executionPlan, null, 2)};\n`;
 }
 
-function requirePath(value, field) {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new TypeError(`${field} must be a non-empty path`);
-  }
-  return path.resolve(value);
-}
-
-export async function writeExecutionPlan({ inputPath, outputPath }) {
+export async function writeExecutionPlan({
+  inputPath,
+  outputDir,
+  environment = "uat",
+}) {
   const sourcePath = requirePath(inputPath, "inputPath");
-  const targetPath = requirePath(outputPath, "outputPath");
+  const targetDir = requirePath(outputDir, "outputDir");
+  const normalizedEnvironment = normalizeEnvironment(environment);
   const sourceText = await readFile(sourcePath, "utf8");
-  const executionPlan = parseTestcases(sourceText);
+  const executionPlan = parseTestcases(sourceText, {
+    environment: normalizedEnvironment,
+  });
+  const targetPath = path.join(
+    targetDir,
+    `${normalizedEnvironment}-execution-plan.js`,
+  );
 
-  await mkdir(path.dirname(targetPath), { recursive: true });
+  await mkdir(path.join(targetDir, "screenshots"), { recursive: true });
   const temporaryPath = path.join(
-    path.dirname(targetPath),
+    targetDir,
     `.${path.basename(targetPath)}.tmp-${process.pid}-${Date.now()}`,
   );
   try {
@@ -239,43 +218,50 @@ export async function writeExecutionPlan({ inputPath, outputPath }) {
     executionPlan,
     outputPath: targetPath,
     testcaseCount: executionPlan.testcases.length,
+    environment: normalizedEnvironment,
   };
 }
 
 function parseCliArguments(args) {
-  const options = {};
+  const options = { environment: "uat" };
+  const argumentMap = new Map([
+    ["--input", "inputPath"],
+    ["--output-dir", "outputDir"],
+    ["--env", "environment"],
+  ]);
+
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument !== "--input" && argument !== "--output") {
-      throw new Error(`Unsupported argument: ${argument}`);
-    }
+    const key = argumentMap.get(argument);
+    if (!key) throw new Error(`Unsupported argument: ${argument}`);
     const value = args[index + 1];
     if (!value || value.startsWith("--")) {
       throw new Error(`Missing value for ${argument}`);
     }
-    const key = argument === "--input" ? "inputPath" : "outputPath";
-    if (options[key]) {
+    if (key !== "environment" && options[key]) {
       throw new Error(`Duplicate argument: ${argument}`);
     }
     options[key] = value;
     index += 1;
   }
 
-  if (!options.inputPath || !options.outputPath) {
+  if (!options.inputPath || !options.outputDir) {
     throw new Error(
-      "Usage: node parse-testcase.mjs --input <source.md> --output <execution-plan.yaml>",
+      "Usage: node create-execution-plan.mjs --input <source.md> --output-dir <execute-testcase> [--env uat|pre]",
     );
   }
   return options;
 }
 
 async function main() {
-  const options = parseCliArguments(process.argv.slice(2));
-  const result = await writeExecutionPlan(options);
+  const result = await writeExecutionPlan(
+    parseCliArguments(process.argv.slice(2)),
+  );
   process.stdout.write(
     `${JSON.stringify({
       outputPath: result.outputPath,
       testcaseCount: result.testcaseCount,
+      environment: result.environment,
     })}\n`,
   );
 }

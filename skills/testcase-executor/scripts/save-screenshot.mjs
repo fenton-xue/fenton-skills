@@ -24,7 +24,7 @@ function padNumber(value) {
 export async function saveScreenshot({
   screenshotUrl,
   outputDir,
-  runId,
+  environment = "uat",
   caseNo,
   stepNo,
   shotNo,
@@ -32,14 +32,17 @@ export async function saveScreenshot({
 }) {
   const sourceUrl = requireNonEmptyString(screenshotUrl, "screenshotUrl");
   const targetDir = requireNonEmptyString(outputDir, "outputDir");
-  const normalizedRunId = requireNonEmptyString(runId, "runId");
+  const normalizedEnvironment = requireNonEmptyString(
+    environment,
+    "environment",
+  ).toLowerCase();
   const normalizedLabel = requireNonEmptyString(label, "label");
 
   if (!path.isAbsolute(targetDir)) {
     throw new TypeError("outputDir must be an absolute path");
   }
-  if (!/^\d{8}_\d{6}$/.test(normalizedRunId)) {
-    throw new TypeError("runId must use YYYYMMDD_HHmmss format");
+  if (normalizedEnvironment !== "uat" && normalizedEnvironment !== "pre") {
+    throw new TypeError("environment must be uat or pre");
   }
   if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(normalizedLabel)) {
     throw new TypeError(
@@ -56,7 +59,7 @@ export async function saveScreenshot({
   const normalizedStepNo = requirePositiveInteger(stepNo, "stepNo");
   const normalizedShotNo = requirePositiveInteger(shotNo, "shotNo");
   const filename =
-    `${normalizedRunId}_case${padNumber(normalizedCaseNo)}` +
+    `${normalizedEnvironment}_case${padNumber(normalizedCaseNo)}` +
     `_step${padNumber(normalizedStepNo)}_${padNumber(normalizedShotNo)}` +
     `_${normalizedLabel}.png`;
 
