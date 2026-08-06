@@ -23,7 +23,7 @@ function padNumber(value) {
 
 export async function saveScreenshot({
   screenshotUrl,
-  outputDir,
+  requirementDir,
   environment = "uat",
   caseNo,
   stepNo,
@@ -31,15 +31,18 @@ export async function saveScreenshot({
   label,
 }) {
   const sourceUrl = requireNonEmptyString(screenshotUrl, "screenshotUrl");
-  const targetDir = requireNonEmptyString(outputDir, "outputDir");
+  const normalizedRequirementDir = requireNonEmptyString(
+    requirementDir,
+    "requirementDir",
+  );
   const normalizedEnvironment = requireNonEmptyString(
     environment,
     "environment",
   ).toLowerCase();
   const normalizedLabel = requireNonEmptyString(label, "label");
 
-  if (!path.isAbsolute(targetDir)) {
-    throw new TypeError("outputDir must be an absolute path");
+  if (!path.isAbsolute(normalizedRequirementDir)) {
+    throw new TypeError("requirementDir must be an absolute path");
   }
   if (normalizedEnvironment !== "uat" && normalizedEnvironment !== "pre") {
     throw new TypeError("environment must be uat or pre");
@@ -63,6 +66,11 @@ export async function saveScreenshot({
     `_step${padNumber(normalizedStepNo)}_${padNumber(normalizedShotNo)}` +
     `_${normalizedLabel}.png`;
 
+  const targetDir = path.join(
+    normalizedRequirementDir,
+    "execute-testcase",
+    "screenshots",
+  );
   await mkdir(targetDir, { recursive: true });
 
   const absolutePath = path.join(targetDir, filename);
@@ -75,6 +83,6 @@ export async function saveScreenshot({
   return {
     filename,
     absolutePath,
-    relativePath: path.posix.join(path.basename(targetDir), filename),
+    relativePath: path.posix.join("execute-testcase", "screenshots", filename),
   };
 }

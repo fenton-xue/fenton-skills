@@ -1,15 +1,20 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const FINAL_STATUSES = new Set(["PASSED", "FAILED", "BLOCKED"]);
-const ASSIGNMENT_PREFIX = "window.TESTCASE_RESULT = ";
+import {
+  FINAL_STATUSES,
+  associateResultWithSource,
+  getAssociatedSource,
+  readExecutionResult,
+  readTestcaseSource,
+  requireAbsolutePath,
+  requireNonEmptyString,
+  serializeExecutionResult,
+  validateExecutionResult,
+  validateTestcaseSource,
+} from "./testcase-data-utils.mjs";
 
-function requireString(value, field) {
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new TypeError(`${field} must be a non-empty string`);
-  }
-  return value.trim();
-}
+const SOURCE_CASE_INDEX = new WeakMap();
 
 function requirePositiveInteger(value, field) {
   if (!Number.isInteger(value) || value < 1) {
@@ -19,7 +24,7 @@ function requirePositiveInteger(value, field) {
 }
 
 function normalizeStatus(value) {
-  const status = requireString(value, "status").toUpperCase();
+  const status = requireNonEmptyString(value, "status").toUpperCase();
   if (!FINAL_STATUSES.has(status)) {
     throw new TypeError(`unsupported status: ${status}`);
   }
@@ -32,94 +37,137 @@ function aggregateStatuses(statuses) {
   return "PASSED";
 }
 
-function resolveTestcase(result, caseNo) {
-  const normalizedCaseNo = requirePositiveInteger(caseNo, "caseNo");
-  const testcase = result?.testcases?.[normalizedCaseNo - 1];
-  if (!testcase) throw new RangeError(`caseNo out of range: ${caseNo}`);
-  return testcase;
-}
-
-export function parseExecutionPlan(sourceText) {
-  if (typeof sourceText !== "string") {
-    throw new TypeError("sourceText must be a string");
+function sourceCaseIndex(source) {
+  let index = SOURCE_CASE_INDEX.get(source);
+  if (!index) {
+    index = new Map(source.testcases.map((testcase) => [testcase.id, testcase]));
+    SOURCE_CASE_INDEX.set(source, index);
   }
-  const trimmed = sourceText.trim();
-  if (!trimmed.startsWith(ASSIGNMENT_PREFIX) || !trimmed.endsWith(";")) {
-    throw new TypeError(
-      "execution plan must use window.TESTCASE_RESULT = {...}; format",
-    );
+  return index;
+}
+
+function resolveSourceCase(result, caseId) {
+  const normalizedCaseId = requireNonEmptyString(caseId, "caseId");
+  const source = getAssociatedSource(result);
+  const testcase = sourceCaseIndex(source).get(normalizedCaseId);
+  if (!testcase) {
+    throw new RangeError(`caseId does not exist in Source: ${normalizedCaseId}`);
   }
-  return JSON.parse(
-    trimmed.slice(ASSIGNMENT_PREFIX.length, -1).trim(),
-  );
+  return { source, testcase, caseId: normalizedCaseId };
 }
 
-export async function readExecutionPlan(inputPath) {
-  const normalizedPath = path.resolve(requireString(inputPath, "inputPath"));
-  return parseExecutionPlan(await readFile(normalizedPath, "utf8"));
+function ensureCaseResult(result, caseId) {
+  const current = result.cases[caseId];
+  if (current) {
+    if (!current.steps || typeof current.steps !== "object" || Array.isArray(current.steps)) {
+      throw new TypeError(`result.cases[${caseId}].steps must be an object`);
+    }
+    return current;
+  }
+  const created = { steps: {} };
+  result.cases[caseId] = created;
+  return created;
 }
 
-export function recordCaseUrl({ result, caseNo, actualUrl }) {
-  resolveTestcase(result, caseNo).actual_url = requireString(
-    actualUrl,
-    "actualUrl",
-  );
+function normalizeScreenshots(screenshots) {
+  if (!Array.isArray(screenshots)) {
+    throw new TypeError("screenshots must be an array");
+  }
+  return screenshots.map((screenshot, index) => {
+    const value = requireNonEmptyString(screenshot, `screenshots[${index}]`);
+    if (!value.startsWith("execute-testcase/screenshots/")) {
+      throw new TypeError(
+        `screenshots[${index}] must start with execute-testcase/screenshots/`,
+      );
+    }
+    return value;
+  });
+}
+
+export { readExecutionResult, readTestcaseSource };
+
+export function recordSystem({ result, system }) {
+  getAssociatedSource(result);
+  result.system = requireNonEmptyString(system, "system");
+  return result;
+}
+
+export function recordCaseContext({
+  result,
+  caseId,
+  pageId,
+  actualUrl,
+}) {
+  const resolved = resolveSourceCase(result, caseId);
+  const caseResult = ensureCaseResult(result, resolved.caseId);
+  caseResult.page_id = requireNonEmptyString(pageId, "pageId");
+  if (actualUrl !== undefined) {
+    caseResult.actual_url =
+      actualUrl === null ? null : requireNonEmptyString(actualUrl, "actualUrl");
+  }
   return result;
 }
 
 export function recordStep({
   result,
-  caseNo,
+  caseId,
   stepNo,
   actual,
   status,
   screenshots = [],
 }) {
-  const testcase = resolveTestcase(result, caseNo);
+  const resolved = resolveSourceCase(result, caseId);
   const normalizedStepNo = requirePositiveInteger(stepNo, "stepNo");
-  const step = testcase.steps?.find((item) => item.step === normalizedStepNo);
-  if (!step) throw new RangeError(`stepNo not found: ${stepNo}`);
-  if (!Array.isArray(screenshots)) {
-    throw new TypeError("screenshots must be an array");
+  const sourceStep = resolved.testcase.steps[normalizedStepNo - 1];
+  if (!sourceStep || sourceStep.step !== normalizedStepNo) {
+    throw new RangeError(
+      `stepNo does not exist in Source case ${resolved.caseId}: ${normalizedStepNo}`,
+    );
   }
-
-  step.actual = requireString(actual, "actual");
-  step.result = normalizeStatus(status);
-  step.screenshots = screenshots.map((item) =>
-    requireString(item, "screenshot"),
-  );
+  const caseResult = ensureCaseResult(result, resolved.caseId);
+  caseResult.steps[String(normalizedStepNo)] = {
+    actual: requireNonEmptyString(actual, "actual"),
+    result: normalizeStatus(status),
+    screenshots: normalizeScreenshots(screenshots),
+  };
+  caseResult.result = null;
+  result.result = null;
   return result;
 }
 
-export function finalizeResult({ result }) {
-  const testcaseStatuses = result.testcases.map((testcase) => {
+export function finalizeResult({ source, result }) {
+  validateTestcaseSource(source);
+  associateResultWithSource(result, source);
+  validateExecutionResult(result, { source });
+
+  const caseStatuses = source.testcases.map((testcase) => {
+    const caseResult = result.cases[testcase.id];
+    if (!caseResult) {
+      throw new Error(`Incomplete result: ${testcase.case_name} has no result entry`);
+    }
     const stepStatuses = testcase.steps.map((step) => {
-      if (!FINAL_STATUSES.has(step.result)) {
-        throw new Error(
-          `Incomplete result: ${testcase.case_name} step ${step.step}`,
-        );
+      const stepResult = caseResult.steps[String(step.step)];
+      if (!stepResult || !FINAL_STATUSES.has(stepResult.result)) {
+        throw new Error(`Incomplete result: ${testcase.case_name} step ${step.step}`);
       }
-      return step.result;
+      return stepResult.result;
     });
-    testcase.result = aggregateStatuses(stepStatuses);
-    return testcase.result;
+    caseResult.result = aggregateStatuses(stepStatuses);
+    return caseResult.result;
   });
-  result.result = aggregateStatuses(testcaseStatuses);
+
+  result.result = aggregateStatuses(caseStatuses);
+  validateExecutionResult(result, { source });
   return result;
 }
 
-export async function writeExecutionPlan({ result, outputPath }) {
-  const normalizedPath = path.resolve(
-    requireString(outputPath, "outputPath"),
-  );
+export async function writeExecutionResult({ source, result, outputPath }) {
+  const normalizedPath = requireAbsolutePath(outputPath, "outputPath");
   const temporaryPath = `${normalizedPath}.tmp-${process.pid}-${Date.now()}`;
+  const serialized = serializeExecutionResult(result, { source });
   await mkdir(path.dirname(normalizedPath), { recursive: true });
   try {
-    await writeFile(
-      temporaryPath,
-      `${ASSIGNMENT_PREFIX}${JSON.stringify(result, null, 2)};\n`,
-      { encoding: "utf8", flag: "wx" },
-    );
+    await writeFile(temporaryPath, serialized, { encoding: "utf8", flag: "wx" });
     await rename(temporaryPath, normalizedPath);
   } catch (error) {
     await rm(temporaryPath, { force: true });

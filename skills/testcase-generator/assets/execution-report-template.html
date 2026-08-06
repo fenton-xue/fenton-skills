@@ -186,6 +186,7 @@
     .status.passed { color: var(--passed); background: var(--passed-bg); }
     .status.failed { color: var(--failed); background: var(--failed-bg); }
     .status.blocked { color: var(--blocked); background: var(--blocked-bg); }
+    .status.pending { color: var(--muted); background: #f2f4f7; }
     .case-body { padding: 20px; }
     dl { margin: 0; }
     .case-meta {
@@ -286,8 +287,8 @@
   <header class="report-header">
     <div class="header-row">
       <div>
-        <p class="eyebrow">TEST EXECUTION REPORT</p>
-        <h2 id="report-title" class="report-title">正在加载执行结果…</h2>
+        <p class="eyebrow">TESTCASE REPORT</p>
+        <h2 id="report-title" class="report-title">正在加载用例数据…</h2>
         <p id="run-meta" class="run-meta"></p>
       </div>
       <div id="overall" class="overall">—</div>
@@ -315,15 +316,24 @@
     <img id="lightbox-image" alt="">
   </dialog>
 
-  <script id="execution-data" src="__EXECUTION_PLAN_JS__"></script>
   <script>
     (() => {
       "use strict";
 
-      const DATA_FILE = document.querySelector("#execution-data").getAttribute("src");
+      const CONFIGURED_SOURCE_DATA_FILE = "__TESTCASE_SOURCE_JS__";
+      const viewerFileName = decodeURIComponent(location.pathname.split("/").pop() || "");
+      const viewerMatch = /^(uat|pre)-testcase-viewer\.html$/i.exec(viewerFileName);
+      const viewerEnvironment = viewerMatch ? viewerMatch[1].toLowerCase() : null;
+      const SOURCE_DATA_FILE = viewerEnvironment
+        ? `./${viewerEnvironment}-testcase-source.js`
+        : CONFIGURED_SOURCE_DATA_FILE;
+      const RESULT_DATA_FILE = viewerEnvironment
+        ? `./execute-testcase/${viewerEnvironment}-execution-result.js`
+        : "./execution-result.js";
       const REPORT_CREATED_AT = "__REPORT_CREATED_AT__";
       const RELOAD_INTERVAL_MS = 3000;
       const FINAL_STATUSES = new Set(["PASSED", "FAILED", "BLOCKED"]);
+      const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       let activeFilter = "all";
       let renderedSignature = "";
 
@@ -334,15 +344,223 @@
         return value;
       }
 
-      function validateResult(result) {
-        if (!result || typeof result !== "object") throw new TypeError("result must be an object");
-        ["system", "prd_name", "environment"].forEach((field) => {
-          requireString(result[field], `result.${field}`);
-        });
-        if (!FINAL_STATUSES.has(result.result)) throw new TypeError("result.result must be finalized");
-        if (!Array.isArray(result.testcases) || result.testcases.length === 0) {
-          throw new TypeError("result.testcases must be a non-empty array");
+      function requireObject(value, field) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          throw new TypeError(`${field} must be an object`);
         }
+        return value;
+      }
+
+      function requireExactKeys(value, allowedKeys, field) {
+        const actual = Object.keys(value).sort();
+        const expected = [...allowedKeys].sort();
+        if (
+          actual.length !== expected.length ||
+          actual.some((key, index) => key !== expected[index])
+        ) {
+          throw new TypeError(`${field} fields must be exactly: ${expected.join(", ")}`);
+        }
+      }
+
+      function requireAllowedKeys(value, allowedKeys, field) {
+        const allowed = new Set(allowedKeys);
+        const unsupported = Object.keys(value).filter((key) => !allowed.has(key));
+        if (unsupported.length > 0) {
+          throw new TypeError(`${field} contains unsupported fields: ${unsupported.join(", ")}`);
+        }
+      }
+
+      function requireUuid(value, field) {
+        requireString(value, field);
+        if (!UUID_PATTERN.test(value)) throw new TypeError(`${field} must be a standard UUID`);
+        return value;
+      }
+
+      function requireEnvironment(value, field) {
+        requireString(value, field);
+        if (value !== "UAT" && value !== "PRE") {
+          throw new TypeError(`${field} must be UAT or PRE`);
+        }
+        return value;
+      }
+
+      function normalizeStatus(value, field) {
+        if (value === null || value === undefined || value === "") return null;
+        if (!FINAL_STATUSES.has(value)) {
+          throw new TypeError(`${field} must be PASSED, FAILED, BLOCKED, or null`);
+        }
+        return value;
+      }
+
+      function validateSource(source) {
+        requireObject(source, "TESTCASE_SOURCE");
+        requireExactKeys(
+          source,
+          ["source_id", "environment", "prd_name", "testcases"],
+          "TESTCASE_SOURCE",
+        );
+        requireUuid(source.source_id, "TESTCASE_SOURCE.source_id");
+        requireEnvironment(source.environment, "TESTCASE_SOURCE.environment");
+        requireString(source.prd_name, "TESTCASE_SOURCE.prd_name");
+        if (!Array.isArray(source.testcases) || source.testcases.length === 0) {
+          throw new TypeError("TESTCASE_SOURCE.testcases must be a non-empty array");
+        }
+        source.testcases.forEach((testcase, caseIndex) => {
+          const caseField = `TESTCASE_SOURCE.testcases[${caseIndex}]`;
+          requireObject(testcase, caseField);
+          requireExactKeys(
+            testcase,
+            ["id", "case_name", "module_path", "precondition", "steps"],
+            caseField,
+          );
+          requireUuid(testcase.id, `${caseField}.id`);
+          requireString(testcase.case_name, `${caseField}.case_name`);
+          if (!Array.isArray(testcase.module_path) || testcase.module_path.length === 0) {
+            throw new TypeError(`${caseField}.module_path must be a non-empty array`);
+          }
+          if (typeof testcase.precondition !== "string") {
+            throw new TypeError(`${caseField}.precondition must be a string`);
+          }
+          if (!Array.isArray(testcase.steps) || testcase.steps.length === 0) {
+            throw new TypeError(`${caseField}.steps must be a non-empty array`);
+          }
+          testcase.steps.forEach((step, stepIndex) => {
+            const stepField = `${caseField}.steps[${stepIndex}]`;
+            requireObject(step, stepField);
+            requireExactKeys(step, ["step", "action", "expected"], stepField);
+            if (!Number.isInteger(step.step) || step.step !== stepIndex + 1) {
+              throw new TypeError(`${stepField}.step must be continuous from 1`);
+            }
+            requireString(step.action, `${stepField}.action`);
+            requireString(step.expected, `${stepField}.expected`);
+          });
+        });
+        return source;
+      }
+
+      function validateExecutionResult(executionResult, source) {
+        if (executionResult === null || executionResult === undefined) return null;
+        requireObject(executionResult, "TESTCASE_EXECUTION_RESULT");
+        requireUuid(executionResult.source_id, "TESTCASE_EXECUTION_RESULT.source_id");
+        if (executionResult.source_id.toLowerCase() !== source.source_id.toLowerCase()) {
+          throw new TypeError("execution result source_id does not match Source");
+        }
+        requireEnvironment(
+          executionResult.environment,
+          "TESTCASE_EXECUTION_RESULT.environment",
+        );
+        if (executionResult.environment !== source.environment) {
+          throw new TypeError(
+            "execution result environment does not match Source",
+          );
+        }
+        normalizeStatus(executionResult.result, "TESTCASE_EXECUTION_RESULT.result");
+        requireObject(executionResult.cases, "TESTCASE_EXECUTION_RESULT.cases");
+        requireAllowedKeys(
+          executionResult,
+          ["source_id", "system", "environment", "result", "cases"],
+          "TESTCASE_EXECUTION_RESULT",
+        );
+        const sourceCases = new Map(source.testcases.map((testcase) => [testcase.id, testcase]));
+        Object.entries(executionResult.cases).forEach(([caseId, caseResult]) => {
+          requireUuid(caseId, `TESTCASE_EXECUTION_RESULT.cases key ${caseId}`);
+          const sourceCase = sourceCases.get(caseId);
+          if (!sourceCase) {
+            throw new TypeError(`execution result contains unknown testcase UUID ${caseId}`);
+          }
+          const caseField = `TESTCASE_EXECUTION_RESULT.cases[${caseId}]`;
+          requireObject(caseResult, caseField);
+          requireAllowedKeys(
+            caseResult,
+            ["page_id", "actual_url", "result", "steps"],
+            caseField,
+          );
+          normalizeStatus(caseResult.result, `${caseField}.result`);
+          const stepResults = requireObject(caseResult.steps ?? {}, `${caseField}.steps`);
+          Object.entries(stepResults).forEach(([stepNumber, stepResult]) => {
+            if (!/^\d+$/.test(stepNumber) || !sourceCase.steps[Number(stepNumber) - 1]) {
+              throw new TypeError(`${caseField}.steps contains unknown step ${stepNumber}`);
+            }
+            const stepField = `${caseField}.steps[${stepNumber}]`;
+            requireObject(stepResult, stepField);
+            requireAllowedKeys(stepResult, ["actual", "result", "screenshots"], stepField);
+            normalizeStatus(stepResult.result, `${stepField}.result`);
+            if (
+              stepResult.screenshots !== undefined &&
+              !Array.isArray(stepResult.screenshots)
+            ) {
+              throw new TypeError(`${stepField}.screenshots must be an array`);
+            }
+          });
+        });
+        return executionResult;
+      }
+
+      function buildViewModel(source, executionResult = null) {
+        validateSource(source);
+        const result = validateExecutionResult(executionResult, source);
+        const caseResults = result ? result.cases : {};
+        return {
+          source_id: source.source_id,
+          system: result?.system ?? null,
+          prd_name: source.prd_name,
+          environment: source.environment,
+          result: normalizeStatus(result?.result, "viewModel.result"),
+          testcases: source.testcases.map((testcase) => {
+            const caseResult = requireObject(
+              caseResults[testcase.id] ?? {},
+              `TESTCASE_EXECUTION_RESULT.cases[${testcase.id}]`,
+            );
+            const stepResults = requireObject(
+              caseResult.steps ?? {},
+              `TESTCASE_EXECUTION_RESULT.cases[${testcase.id}].steps`,
+            );
+            return {
+              id: testcase.id,
+              case_name: testcase.case_name,
+              module_path: testcase.module_path,
+              precondition: testcase.precondition,
+              page_id: caseResult.page_id ?? null,
+              actual_url: caseResult.actual_url ?? null,
+              result: normalizeStatus(caseResult.result, `case ${testcase.id}.result`),
+              steps: testcase.steps.map((step) => {
+                const stepResult = stepResults[step.step] ?? {};
+                return {
+                  step: step.step,
+                  action: step.action,
+                  expected: step.expected,
+                  actual: stepResult.actual ?? null,
+                  result: normalizeStatus(
+                    stepResult.result,
+                    `case ${testcase.id} step ${step.step}.result`,
+                  ),
+                  screenshots: Array.isArray(stepResult.screenshots)
+                    ? stepResult.screenshots
+                    : [],
+                };
+              }),
+            };
+          }),
+        };
+      }
+
+      function validateViewModel(result) {
+        requireObject(result, "viewModel");
+        requireString(result.prd_name, "viewModel.prd_name");
+        normalizeStatus(result.result, "viewModel.result");
+        if (!Array.isArray(result.testcases) || result.testcases.length === 0) {
+          throw new TypeError("viewModel.testcases must be a non-empty array");
+        }
+        result.testcases.forEach((testcase, caseIndex) => {
+          normalizeStatus(testcase.result, `viewModel.testcases[${caseIndex}].result`);
+          testcase.steps.forEach((step, stepIndex) => {
+            normalizeStatus(
+              step.result,
+              `viewModel.testcases[${caseIndex}].steps[${stepIndex}].result`,
+            );
+          });
+        });
+        return result;
       }
 
       function escapeHtml(value) {
@@ -359,7 +577,13 @@
       }
 
       function statusClass(status) {
-        return requireString(status, "status").toLowerCase();
+        return status === null || status === undefined || status === ""
+          ? "pending"
+          : requireString(status, "status").toLowerCase();
+      }
+
+      function statusLabel(status) {
+        return status === null || status === undefined || status === "" ? "—" : status;
       }
 
       function screenshotUrl(value) {
@@ -404,7 +628,7 @@
           <a class="case-nav-link" href="#case-${index + 1}" data-status="${statusClass(testcase.result)}">
             <span>${String(index + 1).padStart(2, "0")}</span>
             <strong>${escapeHtml(testcase.case_name)}</strong>
-            <em class="status ${statusClass(testcase.result)}">${escapeHtml(testcase.result)}</em>
+            <em class="status ${statusClass(testcase.result)}">${escapeHtml(statusLabel(testcase.result))}</em>
           </a>`;
       }
 
@@ -446,7 +670,7 @@
           <section class="step-card">
             <div class="step-heading">
               <h3>步骤 ${escapeHtml(step.step)}</h3>
-              <span class="status ${statusClass(step.result)}">${escapeHtml(step.result)}</span>
+              <span class="status ${statusClass(step.result)}">${escapeHtml(statusLabel(step.result))}</span>
             </div>
             <dl class="step-fields">
               <div><dt>操作</dt><dd>${escapeHtml(displayValue(step.action))}</dd></div>
@@ -476,7 +700,7 @@
             <summary>
               <span class="case-index">用例 ${String(caseNo).padStart(2, "0")}</span>
               <span class="case-title">${escapeHtml(testcase.case_name)}</span>
-              <span class="status ${statusClass(testcase.result)}">${escapeHtml(testcase.result)}</span>
+              <span class="status ${statusClass(testcase.result)}">${escapeHtml(statusLabel(testcase.result))}</span>
             </summary>
             <div class="case-body">
               <dl class="case-meta">
@@ -546,18 +770,21 @@
       }
 
       function renderReport(result) {
-        validateResult(result);
+        validateViewModel(result);
         const counts = { PASSED: 0, FAILED: 0, BLOCKED: 0 };
-        result.testcases.forEach((testcase) => { counts[testcase.result] += 1; });
-        const title = `${result.system}-${result.prd_name}`;
+        result.testcases.forEach((testcase) => {
+          if (FINAL_STATUSES.has(testcase.result)) counts[testcase.result] += 1;
+        });
+        const title = [result.system, result.prd_name].filter(Boolean).join("-");
         const moduleTree = buildModuleTree(result.testcases);
 
         document.title = title;
         document.querySelector("#report-title").textContent = title;
-        document.querySelector("#run-meta").innerHTML =
-          `${escapeHtml(result.environment.toUpperCase())}<br>` +
-          escapeHtml(REPORT_CREATED_AT);
-        document.querySelector("#overall").textContent = result.result;
+        document.querySelector("#run-meta").innerHTML = [
+          result.environment ? String(result.environment).toUpperCase() : null,
+          REPORT_CREATED_AT,
+        ].filter(Boolean).map(escapeHtml).join("<br>");
+        document.querySelector("#overall").textContent = displayValue(result.result);
         document.querySelector("#summary-grid").innerHTML = `
           <button class="summary-card all" type="button" data-filter="all" aria-pressed="true"><strong>${result.testcases.length}</strong><span>ALL</span></button>
           <button class="summary-card passed" type="button" data-filter="passed" aria-pressed="false"><strong>${counts.PASSED}</strong><span>PASSED</span></button>
@@ -573,33 +800,65 @@
 
       function showError(error) {
         const errorBox = document.querySelector("#load-error");
-        errorBox.textContent = `无法加载执行结果：${error.message}`;
+        errorBox.textContent = `无法加载用例数据：${error.message}`;
         errorBox.hidden = false;
+        document.querySelector("#report-layout").hidden = true;
       }
 
       function dataSignature(result) {
         return JSON.stringify(result);
       }
 
-      function pollDataFile() {
-        const script = document.createElement("script");
-        const url = new URL(DATA_FILE, location.href);
-        url.searchParams.set("reload", String(Date.now()));
-        script.src = url.href;
-        script.onload = () => {
-          script.remove();
-          try {
-            const nextSignature = dataSignature(window.TESTCASE_RESULT);
-            if (nextSignature !== renderedSignature) {
-              renderReport(window.TESTCASE_RESULT);
-              renderedSignature = nextSignature;
-            }
-          } catch (error) {
-            showError(error);
-          }
-        };
-        script.onerror = () => script.remove();
-        document.head.append(script);
+      function currentViewModel() {
+        if (window.TESTCASE_SOURCE) {
+          return buildViewModel(
+            window.TESTCASE_SOURCE,
+            window.TESTCASE_EXECUTION_RESULT ?? null,
+          );
+        }
+        throw new TypeError("Source file did not define window.TESTCASE_SOURCE");
+      }
+
+      function renderCurrentData() {
+        const viewModel = currentViewModel();
+        const nextSignature = dataSignature(viewModel);
+        if (nextSignature !== renderedSignature) {
+          renderReport(viewModel);
+          renderedSignature = nextSignature;
+        }
+        window.TESTCASE_VIEW_MODEL = viewModel;
+        return viewModel;
+      }
+
+      function loadDataScript(dataFile, { required }) {
+        return new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          const url = new URL(dataFile, location.href);
+          url.searchParams.set("reload", String(Date.now()));
+          script.src = url.href;
+          script.onload = () => {
+            script.remove();
+            resolve(true);
+          };
+          script.onerror = () => {
+            script.remove();
+            if (required) reject(new Error(`无法加载必需数据文件 ${dataFile}`));
+            else resolve(false);
+          };
+          document.head.append(script);
+        });
+      }
+
+      async function pollDataFiles() {
+        window.TESTCASE_SOURCE = undefined;
+        window.TESTCASE_EXECUTION_RESULT = undefined;
+        try {
+          await loadDataScript(SOURCE_DATA_FILE, { required: true });
+          await loadDataScript(RESULT_DATA_FILE, { required: false });
+          renderCurrentData();
+        } catch (error) {
+          showError(error);
+        }
       }
 
       document.querySelector("#lightbox-close").addEventListener("click", () => {
@@ -609,15 +868,18 @@
         if (event.target === event.currentTarget) event.currentTarget.close();
       });
 
-      try {
-        renderReport(window.TESTCASE_RESULT);
-        renderedSignature = dataSignature(window.TESTCASE_RESULT);
+      window.TESTCASE_VIEWER_BUILD_VIEW_MODEL = buildViewModel;
+      window.TESTCASE_VIEWER_VALIDATE_SOURCE = validateSource;
+      window.TESTCASE_VIEWER_RELOAD = pollDataFiles;
+
+      async function initialize() {
+        await pollDataFiles();
         window.TESTCASE_REPORT_READY = true;
         window.TESTCASE_REPORT_RELOAD_INTERVAL_MS = RELOAD_INTERVAL_MS;
-        setInterval(pollDataFile, RELOAD_INTERVAL_MS);
-      } catch (error) {
-        showError(error);
+        setInterval(pollDataFiles, RELOAD_INTERVAL_MS);
       }
+
+      initialize().catch(showError);
     })();
   </script>
 </body>
