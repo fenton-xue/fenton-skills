@@ -61,6 +61,9 @@ export function parseTestcases(sourceText, { environment = "uat" } = {}) {
     if (numbers.length === 0) {
       throw formatError(currentCase.lineNumber, "test steps are missing");
     }
+    if (currentCase.precondition === undefined) {
+      throw formatError(currentCase.lineNumber, "前置条件 is missing");
+    }
 
     numbers.forEach((number, index) => {
       if (number !== index + 1) {
@@ -83,7 +86,7 @@ export function parseTestcases(sourceText, { environment = "uat" } = {}) {
       page_id: null,
       actual_url: null,
       result: null,
-      precondition: null,
+      precondition: currentCase.precondition,
       steps: numbers.map((number) => ({
         step: number,
         action: currentCase.actions.get(number),
@@ -124,9 +127,22 @@ export function parseTestcases(sourceText, { environment = "uat" } = {}) {
         lineNumber,
         case_name: requireText(caseMatch[1], lineNumber, "用例名称"),
         module_path: [...modulePath],
+        precondition: undefined,
         actions: new Map(),
         expectedResults: new Map(),
       };
+      return;
+    }
+
+    const preconditionMatch = line.match(/^前置条件\s*[:：]\s*(.*)$/);
+    if (preconditionMatch) {
+      if (!currentCase) {
+        throw formatError(lineNumber, "前置条件 appears before 用例名称");
+      }
+      if (currentCase.precondition !== undefined) {
+        throw formatError(lineNumber, "duplicate 前置条件");
+      }
+      currentCase.precondition = preconditionMatch[1].trim() || null;
       return;
     }
 

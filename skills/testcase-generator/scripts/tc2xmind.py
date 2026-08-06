@@ -16,6 +16,9 @@ import re
 from pathlib import Path
 
 
+DEFAULT_PRIORITY = 'P2'
+
+
 def parse_testcases(content: str) -> list[dict]:
     testcases = []
     current_case = None
@@ -40,6 +43,8 @@ def parse_testcases(content: str) -> list[dict]:
                 while len(current_case['expected']) < idx:
                     current_case['expected'].append('')
                 current_case['expected'][idx - 1] = text
+            elif field_type == 'precondition':
+                current_case['precondition'] = text
     
     lines = content.split('\n')
     
@@ -53,7 +58,13 @@ def parse_testcases(content: str) -> list[dict]:
             if current_case:
                 testcases.append(current_case)
             module_name = stripped.split(':', 1)[1].strip()
-            current_case = {'modules': [module_name], 'name': '', 'steps': [], 'expected': []}
+            current_case = {
+                'modules': [module_name],
+                'name': '',
+                'precondition': '',
+                'steps': [],
+                'expected': [],
+            }
         elif stripped.startswith('二级模块:') and current_case:
             save_content()
             current_field = None
@@ -69,6 +80,11 @@ def parse_testcases(content: str) -> list[dict]:
             current_field = None
             current_content = []
             current_case['name'] = stripped.split(':', 1)[1].strip()
+        elif stripped.startswith('前置条件:') and current_case:
+            save_content()
+            first_line = stripped.split(':', 1)[1].strip()
+            current_field = ('precondition', 0)
+            current_content = [first_line] if first_line else []
         elif re.match(r'^步骤描述(\d+):', stripped):
             save_content()
             match = re.match(r'^步骤描述(\d+):(.*)$', stripped)
@@ -106,6 +122,11 @@ def normalize_case_name(case_name: str) -> str:
     return f'cs{name}'
 
 
+def normalize_precondition(precondition: str) -> str:
+    text = precondition.strip()
+    return f'pc{text}' if text else ''
+
+
 def convert_to_xmind_format(testcases: list[dict], root_name: str) -> str:
     lines = []
     
@@ -117,6 +138,7 @@ def convert_to_xmind_format(testcases: list[dict], root_name: str) -> str:
     for case in testcases:
         modules = case.get('modules', [])
         case_name = normalize_case_name(case.get('name', ''))
+        precondition = normalize_precondition(case.get('precondition', ''))
         steps = case.get('steps', [])
         expected = case.get('expected', [])
         
@@ -131,6 +153,10 @@ def convert_to_xmind_format(testcases: list[dict], root_name: str) -> str:
         
         step_level = case_level + 1
         expected_level = step_level + 1
+
+        if precondition:
+            lines.append(f'{get_prefix(step_level)}{precondition}')
+        lines.append(f'{get_prefix(step_level)}tp{DEFAULT_PRIORITY}')
         
         max_count = max(len(steps), len(expected))
         for i in range(max_count):

@@ -1,6 +1,6 @@
 ---
 name: testcase-executor
-description: 使用 Computer Use 执行人工测试用例，将“模块、用例名称、步骤描述、预期结果”纯文本直接转换为可执行的 JavaScript 计划，结合页面知识完成 UI 功能验证，记录实际结果、截图证据并生成可直接通过 file:// 打开的 HTML 报告。用于执行测试用例、自动完成 UI 功能验证或生成测试执行报告。
+description: 使用 Computer Use 执行人工测试用例，将“模块、用例名称、前置条件、步骤描述、预期结果”纯文本直接转换为可执行的 JavaScript 计划，结合页面知识完成 UI 功能验证，记录实际结果、截图证据并生成可直接通过 file:// 打开的 HTML 报告。用于执行测试用例、自动完成 UI 功能验证或生成测试执行报告。
 ---
 
 # 测试用例执行
@@ -35,7 +35,7 @@ description: 使用 Computer Use 执行人工测试用例，将“模块、用�
 
 ## 生成执行计划
 
-正式用例包含动态层级的 `一级模块`、`二级模块`、`三级模块`等字段，以及 `用例名称`、`步骤描述N` 和 `预期结果N`。需要确认源格式时读取 [references/testcase-source.example.md](references/testcase-source.example.md)。
+正式用例包含动态层级的 `一级模块`、`二级模块`、`三级模块`等字段，以及 `用例名称`、必需的 `前置条件`、`步骤描述N` 和 `预期结果N`。`前置条件`允许值为空。需要确认源格式时读取 [references/testcase-source.example.md](references/testcase-source.example.md)。
 
 运行 [scripts/create-execution-plan.mjs](scripts/create-execution-plan.mjs)：
 
@@ -70,7 +70,7 @@ window.TESTCASE_RESULT = { /* 完整执行数据 */ };
 2. 将 `<需求目录>` 最末级目录名原样写入 `prd_name`。
 3. 根据 `module_path` 查询 `.agent/page/{system}/menu.yaml` 和 `.agent/page/{system}/{page_id}.yaml`，为每条用例填写稳定的 `page_id`。
 4. 保留源用例的 `case_name`、`module_path`、`action` 和 `expected`。
-5. 保留 `precondition`；源用例和用户均未提供时保持 `null`。
+5. 保留脚本从源用例直接赋值的 `precondition`；源字段值为空时保持 `null`。
 6. `actual_url`、`result`、`actual` 和 `screenshots` 留待执行时填写。
 
 页面知识只记录功能与页面关系。DOM、Accessibility 元素、CSS Selector、XPath、临时元素索引和坐标在执行时从当前页面获取。

@@ -14,7 +14,7 @@ window.TESTCASE_RESULT = {
       "page_id": "qc-report-review",
       "actual_url": null,
       "result": null,
-      "precondition": null,
+      "precondition": "使用具有QC报告审核权限的账号登录UAT环境",
       "steps": [
         {
           "step": 1,
