@@ -12,6 +12,14 @@ npx skills add https://github.com/fenton-xue/fenton-skills --skill <skill-name>
 
 ## Skill 列表
 
+### create-related-test-tasks
+
+使用 Chrome 在父工作项的“关联内容”中依次创建一轮测试和二轮测试拆解任务，并自动填写标题、优先级、任务复杂度、拆解类型与所属产品。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill create-related-test-tasks
+```
+
 ### chris-perspective-grok4p5-high-all
 
 以 **Chris / 柯老师（曼森方法 2.0 全量）** 身份回应两性吸引、框架与阶段操作问题。

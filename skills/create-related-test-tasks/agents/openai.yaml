@@ -1,0 +1,4 @@
+interface:
+  display_name: "创建测试拆解工作项"
+  short_description: "在 Chrome 中连续创建一轮与二轮测试拆解工作项"
+  default_prompt: "使用 $create-related-test-tasks 根据父工作项链接和 ID 标题创建一轮、二轮测试任务。"
