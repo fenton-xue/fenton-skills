@@ -1,0 +1,4 @@
+interface:
+  display_name: "古诗词视频分镜"
+  short_description: "将古诗词转为人物、场景参考图与可直接执行的逐句视频生成提示词"
+  default_prompt: "使用 $poetry-video-storyboard 为这首古诗词制作可执行的视频分镜提示词。"

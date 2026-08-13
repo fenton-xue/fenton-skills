@@ -186,7 +186,7 @@
     .case-card { overflow: hidden; scroll-margin-top: 18px; }
     .case-card[hidden] { display: none; }
     .case-card summary {
-      cursor: pointer;
+      cursor: default;
       list-style: none;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr) auto;
@@ -196,8 +196,31 @@
     }
     .case-card summary::-webkit-details-marker { display: none; }
     .case-card[open] summary { border-bottom: 1px solid var(--line); }
-    .case-index { color: var(--muted); font-size: 12px; font-weight: 700; }
-    .case-title { font-weight: 700; overflow-wrap: anywhere; }
+    .case-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      justify-self: start;
+      padding: 5px 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #f8fafc;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .case-index:hover { background: #eef2f6; color: var(--ink); }
+    .case-index:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+    .case-title {
+      cursor: text;
+      user-select: text;
+      justify-self: start;
+      max-width: 100%;
+      font-weight: 700;
+      overflow-wrap: anywhere;
+    }
     .status {
       display: inline-flex;
       align-items: center;
@@ -227,6 +250,14 @@
     .case-meta div { background: white; padding: 12px; min-width: 0; }
     dt { color: var(--muted); font-size: 11px; font-weight: 700; margin-bottom: 5px; }
     dd { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
+.structured-list {
+  margin: 0;
+  padding-left: 1.3em;
+  list-style-position: outside;
+}
+.structured-list li { padding-left: 0em; }
+    .structured-list li + li { margin-top: .15em; }
+    .structured-list li::marker { font-variant-numeric: tabular-nums; }
     .steps { display: grid; gap: 14px; margin-top: 18px; }
     .step-card { border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
     .step-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -612,7 +643,19 @@
       }
 
       function renderTestcaseText(value) {
-        return escapeHtml(displayValue(value)).replaceAll("&lt;br&gt;", "<br>");
+        const text = displayValue(value);
+        const numberedItems = text.split("<br>").map((line) => {
+          const match = line.trim().match(/^(\d+)\.\s+(.+)$/s);
+          if (!match) return null;
+          const number = Number(match[1]);
+          if (!Number.isSafeInteger(number) || number < 1) return null;
+          return { number, text: match[2].trim() };
+        });
+        if (numberedItems.length >= 2 && numberedItems.every(Boolean)) {
+          return `<ol class="structured-list">${numberedItems.map((item) =>
+            `<li value="${item.number}">${escapeHtml(item.text)}</li>`).join("")}</ol>`;
+        }
+        return escapeHtml(text).replaceAll("&lt;br&gt;", "<br>");
       }
 
       function statusClass(status) {
@@ -736,8 +779,8 @@
         const modules = Array.isArray(testcase.module_path) ? testcase.module_path.join(" › ") : "—";
         return `
           <details id="case-${caseNo}" class="case-card" data-status="${statusClass(testcase.result)}"${testcase.result === "PASSED" ? "" : " open"}>
-            <summary>
-              <span class="case-index">用例 ${String(caseNo).padStart(2, "0")}</span>
+            <summary tabindex="-1">
+              <span class="case-index" role="button" tabindex="0">用例 ${String(caseNo).padStart(2, "0")}</span>
               <span class="case-title">${escapeHtml(testcase.case_name)}</span>
               <span class="status ${statusClass(testcase.result)}">${escapeHtml(statusLabel(testcase.result))}</span>
             </summary>
@@ -780,6 +823,32 @@
           });
           updateModuleGroups(filter);
         }
+
+        caseCards.forEach((card) => {
+          const summary = card.querySelector(":scope > summary");
+          const toggle = summary?.querySelector(".case-index");
+          if (!summary || !toggle) return;
+
+          const syncExpandedState = () => toggle.setAttribute("aria-expanded", String(card.open));
+          const toggleCard = () => {
+            card.open = !card.open;
+            syncExpandedState();
+          };
+
+          syncExpandedState();
+          summary.addEventListener("click", (event) => event.preventDefault());
+          toggle.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleCard();
+          });
+          toggle.addEventListener("keydown", (event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            toggleCard();
+          });
+          card.addEventListener("toggle", syncExpandedState);
+        });
 
         filterCards.forEach((card) => card.addEventListener("click", () => applyFilter(card.dataset.filter)));
         navLinks.forEach((link) => {
