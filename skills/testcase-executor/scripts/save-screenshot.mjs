@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,50 @@ function padNumber(value) {
   return String(value).padStart(2, "0");
 }
 
+function requireScreenshotBytes(value) {
+  if (value instanceof Uint8Array && value.byteLength > 0) {
+    return value;
+  }
+  if (value instanceof ArrayBuffer && value.byteLength > 0) {
+    return new Uint8Array(value);
+  }
+  throw new TypeError("screenshotBytes must be a non-empty Uint8Array or ArrayBuffer");
+}
+
+function detectScreenshotFormat(bytes) {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return { extension: "png", mimeType: "image/png" };
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return { extension: "jpg", mimeType: "image/jpeg" };
+  }
+  if (
+    bytes.length >= 12 &&
+    String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP"
+  ) {
+    return { extension: "webp", mimeType: "image/webp" };
+  }
+  throw new TypeError("unsupported screenshot format; expected JPEG, PNG, or WebP");
+}
+
 export async function saveScreenshot({
+  screenshotBytes,
   screenshotUrl,
   requirementDir,
   environment = "uat",
@@ -30,7 +73,6 @@ export async function saveScreenshot({
   shotNo,
   label,
 }) {
-  const sourceUrl = requireNonEmptyString(screenshotUrl, "screenshotUrl");
   const normalizedRequirementDir = requireNonEmptyString(
     requirementDir,
     "requirementDir",
@@ -53,10 +95,28 @@ export async function saveScreenshot({
     );
   }
 
-  const parsedSourceUrl = new URL(sourceUrl);
-  if (parsedSourceUrl.protocol !== "file:") {
-    throw new TypeError("screenshotUrl must be a file:// URL");
+  const hasBytes = screenshotBytes !== undefined;
+  const hasUrl = screenshotUrl !== undefined;
+  if (hasBytes === hasUrl) {
+    throw new TypeError(
+      "provide exactly one of screenshotBytes or screenshotUrl",
+    );
   }
+
+  let bytes;
+  let sourcePath;
+  if (hasBytes) {
+    bytes = requireScreenshotBytes(screenshotBytes);
+  } else {
+    const sourceUrl = requireNonEmptyString(screenshotUrl, "screenshotUrl");
+    const parsedSourceUrl = new URL(sourceUrl);
+    if (parsedSourceUrl.protocol !== "file:") {
+      throw new TypeError("screenshotUrl must be a file:// URL");
+    }
+    sourcePath = fileURLToPath(parsedSourceUrl);
+    bytes = await readFile(sourcePath);
+  }
+  const format = detectScreenshotFormat(bytes);
 
   const normalizedCaseNo = requirePositiveInteger(caseNo, "caseNo");
   const normalizedStepNo = requirePositiveInteger(stepNo, "stepNo");
@@ -64,25 +124,33 @@ export async function saveScreenshot({
   const filename =
     `${normalizedEnvironment}_case${padNumber(normalizedCaseNo)}` +
     `_step${padNumber(normalizedStepNo)}_${padNumber(normalizedShotNo)}` +
-    `_${normalizedLabel}.png`;
+    `_${normalizedLabel}.${format.extension}`;
 
   const targetDir = path.join(
     normalizedRequirementDir,
+    "测试用例",
     "execute-testcase",
-    "screenshots",
+    `${normalizedEnvironment}-screenshots`,
   );
   await mkdir(targetDir, { recursive: true });
 
   const absolutePath = path.join(targetDir, filename);
-  await copyFile(
-    fileURLToPath(parsedSourceUrl),
-    absolutePath,
-    constants.COPYFILE_EXCL,
-  );
+  if (sourcePath) {
+    await copyFile(sourcePath, absolutePath, constants.COPYFILE_EXCL);
+  } else {
+    await writeFile(absolutePath, bytes, { flag: "wx" });
+  }
 
+  const resultPath = path.posix.join(
+    `${normalizedEnvironment}-screenshots`,
+    filename,
+  );
   return {
+    name: filename,
+    path: resultPath,
     filename,
     absolutePath,
-    relativePath: path.posix.join("execute-testcase", "screenshots", filename),
+    mimeType: format.mimeType,
+    relativePath: resultPath,
   };
 }

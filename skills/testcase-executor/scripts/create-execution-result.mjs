@@ -1,24 +1,15 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  associateResultWithSource,
+  associateResultWithReport,
   normalizeEnvironment,
   readExecutionResult,
-  readTestcaseSource,
+  readTestcaseMarkdown,
   requireAbsolutePath,
   serializeExecutionResult,
 } from "./testcase-data-utils.mjs";
-
-async function requireFile(filePath, message) {
-  try {
-    await access(filePath);
-  } catch (error) {
-    if (error.code === "ENOENT") throw new Error(message);
-    throw error;
-  }
-}
 
 export async function createOrResumeExecutionResult({
   requirementDir,
@@ -26,31 +17,21 @@ export async function createOrResumeExecutionResult({
 }) {
   const targetDir = requireAbsolutePath(requirementDir, "requirementDir");
   const normalizedEnvironment = normalizeEnvironment(environment);
-  const environmentValue = normalizedEnvironment.toUpperCase();
-  const sourcePath = path.join(
-    targetDir,
-    `${normalizedEnvironment}-testcase-source.js`,
+  const testcaseDir = path.join(targetDir, "测试用例");
+  const markdownPath = path.join(
+    testcaseDir,
+    `${normalizedEnvironment}-testcases.md`,
   );
-  const viewerPath = path.join(
-    targetDir,
-    `${normalizedEnvironment}-testcase-viewer.html`,
+  const executionDir = path.join(testcaseDir, "execute-testcase");
+  const screenshotsDir = path.join(
+    executionDir,
+    `${normalizedEnvironment}-screenshots`,
   );
-  const executionDir = path.join(targetDir, "execute-testcase");
-  const screenshotsDir = path.join(executionDir, "screenshots");
   const resultPath = path.join(
     executionDir,
-    `${normalizedEnvironment}-execution-result.js`,
+    `${normalizedEnvironment}-execution-result.json`,
   );
-
-  await requireFile(
-    sourcePath,
-    `${path.basename(sourcePath)} does not exist; ${environmentValue} execution cannot start`,
-  );
-  await requireFile(
-    viewerPath,
-    `${path.basename(viewerPath)} does not exist; generate or copy the Viewer first`,
-  );
-  const source = await readTestcaseSource(sourcePath, {
+  const report = await readTestcaseMarkdown(markdownPath, {
     environment: normalizedEnvironment,
   });
 
@@ -58,40 +39,31 @@ export async function createOrResumeExecutionResult({
   let result;
   let resumed = false;
   try {
-    result = await readExecutionResult(resultPath, { source });
+    result = await readExecutionResult(resultPath, { report });
     resumed = true;
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    result = associateResultWithSource(
-      {
-        source_id: source.source_id,
-        system: null,
-        environment: environmentValue,
-        result: null,
-        cases: {},
-      },
-      source,
-    );
+    result = associateResultWithReport({ cases: {} }, report);
     try {
-      await writeFile(resultPath, serializeExecutionResult(result, { source }), {
+      await writeFile(resultPath, serializeExecutionResult(result, { report }), {
         encoding: "utf8",
         flag: "wx",
       });
     } catch (writeError) {
       if (writeError.code !== "EEXIST") throw writeError;
-      result = await readExecutionResult(resultPath, { source });
+      result = await readExecutionResult(resultPath, { report });
       resumed = true;
     }
   }
 
   return {
-    source,
+    report,
     result,
-    sourcePath,
-    viewerPath,
+    testcaseDir,
+    markdownPath,
     resultPath,
     screenshotsDir,
-    testcaseCount: source.testcases.length,
+    testcaseCount: report.testcases.length,
     environment: normalizedEnvironment,
     resumed,
   };
@@ -131,8 +103,7 @@ if (isMain) {
     .then((result) => {
       process.stdout.write(
         `${JSON.stringify({
-          sourcePath: result.sourcePath,
-          viewerPath: result.viewerPath,
+          markdownPath: result.markdownPath,
           resultPath: result.resultPath,
           screenshotsDir: result.screenshotsDir,
           testcaseCount: result.testcaseCount,

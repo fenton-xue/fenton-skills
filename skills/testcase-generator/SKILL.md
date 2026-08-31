@@ -1,80 +1,43 @@
 ---
 name: testcase-generator
-description: 专业生成和维护结构化黑盒功能测试用例。用于根据需求文档生成测试用例、写测试用例、设计测试用例、更新 uat-testcase-source.js、生成统一用例查看页，或将用例转化为可导入 XMind 的 Markdown 格式。
+description: 根据需求生成和维护黑盒功能测试用例 Markdown（uat-testcases.md 或 pre-testcases.md），并将用例转换为可导入 XMind 的 Markdown。用于设计、编写、更新或转换测试用例。
 ---
 
 # 黑盒功能测试用例生成器
 
-只设计功能测试（黑盒），不涉及接口、性能、安全和自动化测试。将稳定的用例定义直接保存为结构化 JavaScript 数据，供人工 Review、转化为可导入 XMind 的 Markdown 格式，以及交由 testcase-executor 执行。
+只设计功能测试（黑盒），不涉及接口、性能、安全和自动化测试。交付物是测试用例 Markdown；执行结果与截图由下游 testcase-executor 维护。
 
-## 输出文件
+## 输出目录
 
-在需求文档所在的最末级目录只生成并维护 UAT 文件：
+测试用例固定存放在需求目录下：
 
 ```text
-<需求目录>/
-├── uat-testcase-source.js
-└── uat-testcase-viewer.html
+<需求目录>/测试用例/
+├── uat-testcases.md
+├── pre-testcases.md
+└── execute-testcase/
+    ├── uat-execution-result.json
+    ├── pre-execution-result.json
+    ├── uat-screenshots/
+    └── pre-screenshots/
 ```
 
-禁止自动生成 `pre-testcase-source.js` 和 `pre-testcase-viewer.html`。
+默认只生成和维护 `uat-testcases.md`。仅当用户明确要求 PRE 版本时生成 `pre-testcases.md`。`execute-testcase/` 下的文件和截图不属于本 Skill 的交付物。
 
-`uat-testcase-source.js` 是必需数据源。文件只能包含一次全局变量赋值，对象必须是严格 JSON：
+## Markdown 格式
 
-```js
-window.TESTCASE_SOURCE = {
-  "source_id": "UAT文档级标准UUID",
-  "environment": "UAT",
-  "prd_name": "#84313 需求名称",
-  "testcases": [
-    {
-      "id": "用例标准UUID",
-      "case_name": "#84313-01-测试点描述",
-      "module_path": [
-        "一级模块",
-        "二级模块"
-      ],
-      "precondition": "",
-      "steps": [
-        {
-          "step": 1,
-          "action": "可直接执行的操作描述",
-          "expected": "明确、确定、可观察的预期结果"
-        }
-      ]
-    }
-  ]
-};
-```
+创建或更新用例前，读取 [references/uat-testcases.example.md](references/uat-testcases.example.md) 了解完整 Markdown 结构、多级模块、多个步骤、分点前置条件和多行内容。格式约束：
 
-完整示例见 [references/uat-testcase-source.example.js](references/uat-testcase-source.example.js)。
+- frontmatter 必须包含 `environment`、`title`、`created_at`；`environment` 只能是 `UAT` 或 `PRE`，`title` 非空，`created_at` 是有效时间。
+- 创建文件时写入 `created_at`；更新已有文件时保留原值。
+- 一级标题固定为 `测试用例`，每条用例使用二级标题，报告内用例名称唯一。
+- `module_path` 使用 Markdown 无序列表，至少包含一项。
+- 每条用例包含 `### 前置条件`；无特殊前置条件时内容写 `-`。
+- 步骤使用 `### 步骤 N`，从 1 开始连续编号；每一步均包含 `action` 和 `expected`。
+- 空内容统一写 `-`。
+- 更新既有用例时，通过完整用例名称及其所在 `module_path` 定位。
 
-Source 只保存稳定定义，字段仅限：
-
-- 顶层：`source_id`、`environment`、`prd_name`、`testcases`
-- 用例：`id`、`case_name`、`module_path`、`precondition`、`steps`
-- 步骤：`step`、`action`、`expected`
-
-禁止写入 `system`、`page_id`、`actual_url`、`result`、`actual`、`screenshots`。这些执行数据由 testcase-executor 写入 `execute-testcase/{uat|pre}-execution-result.js`。
-
-## UUID 与步骤编号
-
-1. 新建 UAT 文档时为 `source_id` 生成标准 UUID；后续更新同一 UAT 文档时始终保留。
-2. 新增用例时生成新的标准 UUID，并写入用例 `id`。
-3. 修改用例名称、模块、前置条件、步骤操作或预期结果时保留用例 UUID。
-4. 调整用例顺序时保留用例 UUID。
-5. 删除的 UUID 永不复用。
-6. 拆分用例时由原主体保留 UUID，新拆出的用例生成新 UUID。
-7. 合并用例时保留其中一个 UUID，另一个 UUID 废弃且不再复用。
-8. 步骤不使用 UUID；每条用例内的 `step` 必须从 `1` 开始连续递增。
-9. 用例名称中的两位编号只用于展示，独立于 UUID。
-10. 每次写入后必须校验 `source_id`、用例 UUID 的格式，以及步骤编号的连续性。
-
-可使用 Node.js 生成新 UUID：
-
-```bash
-node -e 'console.log(crypto.randomUUID())'
-```
+执行结果文件由下游 testcase-executor 的脚本创建和维护。不要在测试用例 Markdown 中写入执行状态、页面名称、页面 URL、实际结果或截图，也不要由本 Skill 创建执行结果文件。
 
 ## 生成范围
 
@@ -89,31 +52,31 @@ node -e 'console.log(crypto.randomUUID())'
 1. 阅读全文后整体规划 `module_path`，层级数量按业务结构动态确定。
 2. 模块名称可按业务语义优化，不必机械复用需求标题。
 3. 每条用例必须写出完整 `module_path`。
-4. `case_name` 使用 `{需求号}-{两位编号}-{测试点描述}`，例如 `#84313-07-登录按钮验证`。
+4. 用例名称使用 `{需求号}-{两位编号}-{测试点描述}`，例如 `#84313-07-登录按钮验证`。
 5. 需求号从需求文档文件名提取。
 6. 编号从 `01` 开始，并在跨最小级模块时重置。最小级模块是 `module_path` 的最后一项。
-7. `prd_name` 使用包含需求号的完整需求名称，例如 `#84313 登录能力优化`。
+7. frontmatter 的 `title` 使用包含需求号的完整需求名称，例如 `#84313 登录能力优化`。
 
 ## 步骤设计
 
-1. 将账号权限、登录状态、当前页面位置等执行前已经具备的准备信息写入 `precondition`；`action` 从当前测试点所需的最小有效操作开始，只保留选择条件、输入数据、点击、勾选、粘贴、提交、保存、查询或审核等实际操作。仅当登录、导航或切换页面本身是当前测试点时，才在 `action` 中描述这些操作。
+1. 将账号权限、登录状态、当前页面位置等执行前已经具备的准备信息写入前置条件；`action` 从当前测试点所需的最小有效操作开始，只保留选择条件、输入数据、点击、勾选、粘贴、提交、保存、查询或审核等实际操作。仅当登录、导航或切换页面本身是当前测试点时，才在 `action` 中描述这些操作。
 2. 将规则、展示逻辑、字段说明和限制条件转换为可执行操作，禁止直接复述需求。
 3. 相近操作聚合在同一用例中，使用多个步骤覆盖并列场景，避免拆成大量单步骤用例。
 4. 并列步骤之间没有逻辑依赖时，在 `action` 开头使用括号标明当前场景。
 5. 每个步骤同时包含一个 `action` 和一个 `expected`，两者严格一一对应。
 6. 一个步骤只验证一个明确测试点；不同测试点拆成不同步骤。
-7. `step` 按数组顺序从 `1` 连续递增。
+7. 步骤从 `1` 开始连续递增。
 8. 覆盖需求支持的主要操作路径，例如手动输入、批量粘贴、弹窗选择和列表勾选。
 9. 分支、权限、范围和优先级必须设计明确测试点；优先项与兜底项分别验证。
 10. 输入类操作在 `action` 中写出具体、中性的测试数据。禁止单独增加测试数据字段。
 
 ## 复杂内容分点
 
-1. `precondition` 包含两个及以上相互独立的必要条件时，无论句子长短，必须使用分点和换行；只有一个条件时使用连续文本。
+1. 前置条件包含两个及以上相互独立的必要条件时，无论句子长短，必须使用分点和换行；只有一个条件时使用连续文本。
 2. `action`、`expected` 包含多个连续子操作或多个相关展示点，单段表述不易快速理解时，使用分点和换行提高可读性；多个独立测试点仍拆成不同步骤，不使用分点替代步骤拆分。
 3. 准备使用分号连接多项内容时，必须先判断各项是否为相互独立的条件或信息；相互独立时改用分点，同一条件内部的补充说明才保留为连续文本。
-4. 分点使用 `1. `、`2. `、`3. ` 格式，JavaScript 字符串内使用 `<br>` 换行，例如 `"1. 已创建待审核订单<br>2. 订单未被其他人锁定"`。
-5. 同一字段中的分点从 `1. ` 开始连续编号，每一项使用一个 `<br>` 分隔，不在编号项前后混入未编号文本；Viewer 将符合该格式的内容渲染为正文对齐的有序列表。
+4. 分点使用从 `1. ` 开始连续编号的原生 Markdown 有序列表，每项单独一行。
+5. 同一字段中的分点从 `1. ` 开始连续编号，不在编号项前后混入未编号文本。
 
 ## 预期结果
 
@@ -124,58 +87,46 @@ node -e 'console.log(crypto.randomUUID())'
 
 ## 前置条件
 
-1. 每条用例必须包含字符串字段 `precondition`。
-2. 只填写执行后续 `action`、验证对应 `expected` 所必需的页面状态、数据状态、账号权限和登录状态；这些准备信息统一从 `action` 移到 `precondition`，避免在步骤中重复。
-3. 测试环境由顶层 `environment` 定义。除非环境差异本身是当前测试点，否则禁止在 `precondition` 或 `action` 中重复“登录UAT/PRE”“进入UAT/PRE页面”“XX系统测试环境可用”等通用环境说明。
-4. 无特殊前置条件时使用空字符串 `"precondition": ""`。
+1. 每条用例必须包含 `### 前置条件` 区块。
+2. 只填写执行后续 `action`、验证对应 `expected` 所必需的页面状态、数据状态、账号权限和登录状态；这些准备信息统一从 `action` 移到前置条件，避免在步骤中重复。
+3. 测试环境由 frontmatter 的 `environment` 定义。除非环境差异本身是当前测试点，否则禁止在前置条件或 `action` 中重复“登录UAT/PRE”“进入UAT/PRE页面”“XX系统测试环境可用”等通用环境说明。
+4. 无特殊前置条件时使用 `-`。
 5. 禁止单独增加优先级字段。
 
-## 更新既有用例
+## 校验与 XMind 转换
 
-1. 读取现有 `uat-testcase-source.js`，基于 `id` 识别原用例。
-2. Review 修改稳定定义时原地更新，并按 UUID 规则保留或新增用例 UUID。
-3. 新增内容追加到对应模块；删除内容时不复用已删除 UUID。
-4. 修改步骤结构后提示该用例已有执行结果需要清空并重新执行。
-5. 保存后确认同目录存在 `uat-testcase-viewer.html`；缺失时运行查看器生成脚本。已有查看页自动加载最新数据。
-
-## 生成统一查看页
-
-运行：
+生成或更新后运行 Markdown 校验：
 
 ```bash
-node "<testcase-generator目录>/scripts/create-testcase-viewer.mjs" "<需求目录>/uat-testcase-source.js"
+node "<testcase-generator目录>/scripts/testcase-markdown-utils.mjs" "<需求目录>/测试用例/<uat|pre>-testcases.md"
 ```
 
-`uat-testcase-viewer.html` 加载同目录的 `uat-testcase-source.js`，并可选加载 `execute-testcase/uat-execution-result.js`。复制并重命名为 `pre-testcase-viewer.html` 后，按文件名前缀加载对应的 PRE 文件。
-
-Viewer 报告标题必须在一行内完整显示，并根据可用宽度自动使用不超过设计上限的最大字号；窗口宽度变化时重新计算。
-
-用例名称必须支持拖动选择和复制。拖选名称时禁止触发用例展开或收起，普通单击标题栏仍切换展开状态。
-
-## 转化为可导入 XMind 的 Markdown 格式
-
-运行：
+转换为可导入 XMind 的 Markdown：
 
 ```bash
-node "<testcase-generator目录>/scripts/create-xmind-markdown.mjs" "<需求目录>/<uat|pre>-testcase-source.js" [输出文件.md]
+node "<testcase-generator目录>/scripts/create-xmind-markdown.mjs" "<需求目录>/测试用例/<uat|pre>-testcases.md" [输出文件.md]
 ```
+
+未指定输出路径时，默认生成 `<uat|pre>-testcases.xmind.md`。转换结果保留需求标题、模块层级、`cs` 用例标记、`pc` 前置条件标记、`tpP2` 优先级标记，以及操作与预期的父子层级。
 
 ## PRE 复制流程
 
-1. 仅当用户明确要求生成 PRE 版本时，将 `uat-testcase-source.js` 复制为 `pre-testcase-source.js`，将 `uat-testcase-viewer.html` 复制为 `pre-testcase-viewer.html`。
-2. 为 PRE Source 重新生成 `source_id`，并将 `environment` 改为 `PRE`。
-3. 将 `precondition`、`action`、`expected` 中的环境相关数据替换为 PRE 数据。
-4. 保留 `prd_name`、用例 UUID、`case_name`、`module_path`、步骤编号、操作结构和步骤数量。
+1. 仅当用户明确要求生成 PRE 版本时，复制 `uat-testcases.md` 为 `pre-testcases.md`。
+2. 将 frontmatter 的 `environment` 改为 `PRE`。
+3. 根据 PRE 环境调整相关测试数据。
+4. 保留模块、用例名称、步骤编号、操作结构和步骤数量。
 
 ## 工作流程
 
-1. 读取完整需求文档并确定生成范围。
-2. 读取已有 `uat-testcase-source.js`；不存在时创建 UAT 文档，生成 `source_id` 并写入 `"environment": "UAT"`。
-3. 设计整体模块结构和测试点。
-4. 生成或更新结构化用例，遵守 UUID 保留规则。
-5. 确认同目录存在 `uat-testcase-viewer.html`；缺失时立即运行 `create-testcase-viewer.mjs` 创建。`uat-testcase-source.js` 与 `uat-testcase-viewer.html` 必须同时存在，在两者就绪前禁止暂停或交付。
-6. 向用户提供用例数量、变更摘要、`uat-testcase-source.js` 和 `uat-testcase-viewer.html` 链接，然后暂停等待 Review。
-7. 根据 Review 更新同一数据文件，由已有查看页自动加载最新数据。
-8. 指定小标题模式下，等待用户说“下一个”后再生成下一批。
+1. 阅读完整需求文档并确认生成范围。
+2. 定位 `<需求目录>/测试用例/uat-testcases.md`。
+3. 读取已有 Markdown；不存在时创建 UAT 文件。
+4. 规划模块结构和测试点。
+5. 生成或更新测试用例。
+6. 使用校验脚本检查 Markdown 格式、用例名称唯一性和步骤连续性。
+7. 提供用例数量、变更摘要及 Markdown 文件链接。
+8. 暂停等待用户 Review。
+9. 根据 Review 更新同一 Markdown。
+10. 指定小标题模式下，等待用户说“下一个”后再处理下一批。
 
-指定小标题模式一次只处理一个阶段；整篇文档模式必须先获得用户确认。自动生成阶段只创建 UAT Source 与 Viewer，不创建 PRE 文件。
+指定小标题模式一次只处理一个阶段；整篇文档模式必须先获得用户确认。默认流程只创建或更新 UAT Markdown，不创建 PRE 文件或任何执行结果。

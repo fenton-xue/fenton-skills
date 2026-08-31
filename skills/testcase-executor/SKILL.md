@@ -1,68 +1,43 @@
 ---
 name: testcase-executor
-description: 执行 testcase-generator 生成的结构化人工测试用例，按 UAT 或 PRE 读取对应 JavaScript Source，创建或恢复稀疏 execution-result.js，结合页面知识完成 UI 功能验证，持续记录实际结果、状态和截图，并由既有 Viewer 自动展示。用于执行测试用例、自动完成 UI 功能验证或维护测试执行结果。
+description: 执行 testcase-generator 生成的 UAT 或 PRE 黑盒功能测试用例 Markdown，创建或恢复 JSON 执行结果，操作页面完成验证，并持续记录用例状态、实际结果和截图。用于执行测试用例、自动完成 UI 功能验证或维护执行结果。
 ---
 
 # 测试用例执行
 
-读取当前环境的结构化 Source，执行用例并持续更新稀疏 Result。Viewer 由 testcase-generator 生成，本 Skill 不生成新的 HTML。
+读取当前环境的测试用例 Markdown，通过脚本创建和维护执行结果 JSON，按步骤完成页面验证并保存证据。模型负责执行与判定；文件结构、关联关系、校验和序列化由脚本负责。
 
 ## 环境与目录
 
 默认使用 `uat`。仅当用户明确选择 PRE 时使用 `pre`。
 
 ```text
-<需求目录>/
-├── uat-testcase-source.js
-├── uat-testcase-viewer.html
-├── pre-testcase-source.js
-├── pre-testcase-viewer.html
+<需求目录>/测试用例/
+├── uat-testcases.md
+├── pre-testcases.md
 └── execute-testcase/
-    ├── uat-execution-result.js
-    ├── pre-execution-result.js
-    └── screenshots/
+    ├── uat-execution-result.json
+    ├── pre-execution-result.json
+    ├── uat-screenshots/
+    └── pre-screenshots/
 ```
 
-选择 PRE 时必须存在 `pre-testcase-source.js` 和 `pre-testcase-viewer.html`。缺失时停止执行并提示用户，不回退 UAT，不复制或生成 PRE 文件。
+选择 PRE 时必须存在 `pre-testcases.md`。缺失时停止执行并提示用户，不回退 UAT，不复制或生成 PRE 文件。
 
-## Source
+## 测试用例 Markdown
 
-仅支持 `{env}-testcase-source.js`。文件只能包含一次严格 JSON 对象赋值：
+仅支持 `<uat|pre>-testcases.md`。脚本读取并校验 testcase-generator 的当前格式：
 
-```js
-window.TESTCASE_SOURCE = {
-  "source_id": "文档标准UUID",
-  "environment": "UAT",
-  "prd_name": "#84313 需求名称",
-  "testcases": [
-    {
-      "id": "用例标准UUID",
-      "case_name": "#84313-01-测试点描述",
-      "module_path": ["一级模块", "二级模块"],
-      "precondition": "",
-      "steps": [
-        {
-          "step": 1,
-          "action": "可直接执行的操作",
-          "expected": "明确的预期结果"
-        }
-      ]
-    }
-  ]
-};
-```
+- frontmatter 包含有效的 `environment`、`title`、`created_at`，且环境与当前选择一致。
+- 一级标题为“测试用例”，至少存在一条二级标题格式的用例。
+- 报告内完整用例名称唯一；该名称是执行结果中的关联键。
+- `module_path` 非空，前置条件区块存在。
+- 每条用例至少有一个步骤，步骤从 1 开始连续编号。
+- 每个步骤包含非空的 `action` 和 `expected`。
 
-完整示例见 [references/uat-testcase-source.example.js](references/uat-testcase-source.example.js)。脚本提取赋值右侧对象并使用 `JSON.parse()`，不 import 或执行 Source 文件。
+Markdown 中的原生有序列表和换行按原内容读取。执行时按语义处理分点内容，不把 Markdown 标记当作页面输入。
 
-校验内容：
-
-- `source_id` 和用例 `id` 为标准 UUID，用例 UUID 唯一。
-- `environment` 与当前选择环境一致。
-- `prd_name`、`case_name`、`module_path`、`action`、`expected` 有效且非空。
-- `precondition` 必须存在并为字符串，允许空字符串。
-- 每条用例的步骤编号从 `1` 连续递增。
-
-## 创建或恢复 Result
+## 创建或恢复执行结果
 
 运行：
 
@@ -72,101 +47,86 @@ node "<testcase-executor目录>/scripts/create-execution-result.mjs" \
   --env "<uat|pre>"
 ```
 
-`--env` 可省略，默认 `uat`。脚本读取并校验 Source，确认对应 Viewer 存在，创建 `execute-testcase/screenshots/`，然后创建或恢复 `execute-testcase/{env}-execution-result.js`。
+`--env` 可省略，默认 `uat`。脚本会：
 
-Result 已存在时读取原文件，并校验 `source_id` 和 `environment`；校验通过后恢复已有执行数据，不覆盖文件。校验失败时停止执行。
+1. 读取并校验 `测试用例/<env>-testcases.md`。
+2. 创建 `测试用例/execute-testcase/<env>-screenshots/`。
+3. 创建或恢复 `测试用例/execute-testcase/<env>-execution-result.json`。
+4. 已有结果存在时，校验其中的用例名称和步骤编号，不覆盖原有记录。
 
-空 Result：
+新建结果只包含空的 `cases` 对象。尚未执行的用例和步骤不预先写入。结果格式由脚本维护：
 
-```js
-window.TESTCASE_EXECUTION_RESULT = {
-  "source_id": "对应环境Source的文档UUID",
-  "system": null,
-  "environment": "UAT",
-  "result": null,
-  "cases": {}
-};
-```
+- `cases` 以完整用例名称为键。
+- 用例记录可包含 `page`、`url`、`result` 和 `steps`。
+- 步骤记录包含 `result`、`actual`，有证据时包含 `screenshots`。
+- 截图记录包含 `name` 和相对于执行结果目录的 `path`。
 
-Result 只保存执行上下文和已产生的结果，禁止保存 `prd_name`、`case_name`、`module_path`、`precondition`、`action`、`expected`。尚未执行的用例和步骤不预先写入。
-
-完整示例见 [references/execution-result.example.js](references/execution-result.example.js)。
+不要手写、拼接或直接覆写执行结果 JSON。
 
 ## 补充执行上下文并 Review
 
-1. 根据项目上下文、路径或用户指令填写顶层 `system`。
-2. 根据 `module_path` 和页面知识，为对应用例 UUID 填写稳定的 `page_id`。
-3. 执行到目标页面后，将当前 URL 填入 `actual_url`。
+1. 根据 `module_path`、项目上下文和页面知识，为每条用例确定明确的页面名称。
+2. 已进入目标页面时记录当前页面 URL；尚未进入时可以暂不写 URL。
+3. 使用 `recordCaseContext` 写入页面上下文并原子保存结果。
+4. 向用户提供环境、用例数量、页面规划和待确认项，收到明确确认后再执行页面操作。
 
-用例上下文可先写为：
+用户提出修改时更新同一 JSON，并再次提交 Review。
 
-```js
-"用例UUID": {
-  "page_id": "qc-report-review",
-  "steps": {}
-}
-```
+## 记录执行结果
 
-补充 `system` 和 `page_id` 后原子写回 Result，并向用户提供当前环境 Viewer 链接、用例数量和待补字段摘要。收到用户明确确认后再执行页面操作；用户提出修改时更新同一 Result 并再次提交 Review。
-
-## 记录 Result
-
-使用 [scripts/result-record.mjs](scripts/result-record.mjs) 读取 Source 和 Result。读取 Result 时必须传入 Source，使记录函数能够校验用例 UUID 和步骤编号：
+使用 [scripts/result-record.mjs](scripts/result-record.mjs) 读取 Markdown 和结果。读取结果时必须传入 Markdown 解析所得报告，使记录函数能够校验完整用例名称和步骤编号：
 
 ```js
 var resultTools = await import(
   "<testcase-executor目录>/scripts/result-record.mjs"
 );
-var sourcePath = "<需求目录>/<env>-testcase-source.js";
-var resultPath = "<需求目录>/execute-testcase/<env>-execution-result.js";
-var source = await resultTools.readTestcaseSource(sourcePath, {
+var markdownPath = "<需求目录>/测试用例/<env>-testcases.md";
+var resultPath =
+  "<需求目录>/测试用例/execute-testcase/<env>-execution-result.json";
+var report = await resultTools.readTestcaseMarkdown(markdownPath, {
   environment: "<uat|pre>",
 });
 var executionResult = await resultTools.readExecutionResult(resultPath, {
-  source,
-});
-
-resultTools.recordSystem({
-  result: executionResult,
-  system: "QC",
+  report,
 });
 
 resultTools.recordCaseContext({
   result: executionResult,
-  caseId: "用例UUID",
-  pageId: "qc-report-review",
-  actualUrl: "https://example.test/page",
+  caseName: "#84313-01-测试点描述",
+  pageName: "订单审核页",
+  pageUrl: "https://example.test/orders/review",
 });
 
 resultTools.recordStep({
   result: executionResult,
-  caseId: "用例UUID",
+  caseName: "#84313-01-测试点描述",
   stepNo: 1,
-  actual: "页面显示22条结果",
+  actual: "页面展示22条结果",
   status: "PASSED",
   screenshots: [
-    "execute-testcase/screenshots/uat_case01_step01_01_result.png",
+    {
+      name: "uat_case01_step01_01_result.png",
+      path: "uat-screenshots/uat_case01_step01_01_result.png",
+    },
   ],
 });
 
 await resultTools.writeExecutionResult({
-  source,
+  report,
   result: executionResult,
   outputPath: resultPath,
 });
 ```
 
-用例通过 `result.cases[caseId]` 直接关联，步骤通过 `result.cases[caseId].steps[String(stepNo)]` 直接关联。`caseNo` 只用于截图文件名。
-
 `recordStep` 强制校验：
 
-- `caseId` 存在于 Source。
-- `stepNo` 存在于对应 Source 用例。
+- `caseName` 存在于 Markdown，且使用完整用例名称精确关联。
+- `stepNo` 存在于对应用例。
 - `actual` 非空。
 - `status` 为 `PASSED`、`FAILED` 或 `BLOCKED`。
-- `screenshots` 为字符串数组，路径以 `execute-testcase/screenshots/` 开头。
+- 截图包含非空的 `name` 和 `path`，路径位于当前环境的截图目录。
 
-每完成一个步骤或一条用例就调用 `writeExecutionResult` 原子写回，避免执行中断时丢失已完成结果。Viewer 每 3 秒重新加载 Source 和 Result，数据变化后自动更新显示。
+每次记录步骤后自动重新汇总用例状态：当前用例存在未执行步骤时为 `null`；全部步骤完成后按 `FAILED`、`BLOCKED`、`PASSED` 的优先级生成用例级结果。每完成一个步骤或一条用例就调用 `writeExecutionResult` 原子写回，避免执行中断时丢失记录。
 
 ## 等待页面请求与 DOM 稳定
 
@@ -212,10 +172,10 @@ document.dispatchEvent(
 
 1. 根据页面知识进入目标页面并确认识别特征。
 2. 检查并满足 `precondition`。
-3. 记录当前 URL 和页面上下文。
-4. 按 Source 顺序执行每个 `action`。
+3. 记录页面名称和当前 URL。
+4. 按 Markdown 顺序执行每个 `action`。
 5. 页面稳定后对照 `expected` 填写 `actual`、状态和截图。
-6. 每完成一步立即原子写回 Result。
+6. 每完成一步立即原子写回结果。
 
 状态：
 
@@ -227,7 +187,13 @@ document.dispatchEvent(
 
 ## 保存截图
 
-将 Computer Use 返回的临时截图 URL 传给 [scripts/save-screenshot.mjs](scripts/save-screenshot.mjs)：
+普通页面证据默认使用当前受控 Edge 标签页的页面级截图接口，不使用 Computer Use 的整窗口截图：
+
+```js
+var screenshotBytes = await tab.screenshot();
+```
+
+截图后将原始字节传给 [scripts/save-screenshot.mjs](scripts/save-screenshot.mjs)：
 
 ```js
 var { saveScreenshot } = await import(
@@ -235,7 +201,7 @@ var { saveScreenshot } = await import(
 );
 
 var savedScreenshot = await saveScreenshot({
-  screenshotUrl: state.screenshot.url,
+  screenshotBytes,
   requirementDir: "<需求目录>",
   environment: "<uat|pre>",
   caseNo: 1,
@@ -245,10 +211,18 @@ var savedScreenshot = await saveScreenshot({
 });
 ```
 
-脚本将文件保存到 `<需求目录>/execute-testcase/screenshots/`，返回相对于需求目录 Viewer 的路径：
+`savedScreenshot` 的 `name` 和 `path` 可直接放入 `recordStep.screenshots`。仅当证据必须包含浏览器标签栏、地址栏、扩展弹窗、系统对话框，或页面级截图无法捕获的原生控件时，才使用 Computer Use 整窗口截图；回退时将 `state.screenshot.url` 作为 `screenshotUrl` 传入同一脚本。
+
+脚本根据文件头识别 JPEG、PNG 或 WebP，不转码、不压缩、不缩放。文件保存到：
 
 ```text
-execute-testcase/screenshots/{env}_case{用例序号}_step{步骤序号}_{截图序号}_{说明}.png
+<需求目录>/测试用例/execute-testcase/<env>-screenshots/
+```
+
+文件名为：
+
+```text
+{env}_case{用例序号}_step{步骤序号}_{截图序号}_{说明}.{jpg|png|webp}
 ```
 
 脚本禁止覆盖同名截图。说明使用小写英文、数字和单下划线。
@@ -264,20 +238,18 @@ execute-testcase/screenshots/{env}_case{用例序号}_step{步骤序号}_{截图
 
 ## 完成汇总
 
-全部步骤完成后，同时传入 Source 和 Result：
+全部步骤完成后执行最终完整性校验并写回：
 
 ```js
 resultTools.finalizeResult({
-  source,
+  report,
   result: executionResult,
 });
 await resultTools.writeExecutionResult({
-  source,
+  report,
   result: executionResult,
   outputPath: resultPath,
 });
 ```
 
-汇总前逐条检查 Source 中所有用例和步骤。缺少任一步骤结果时禁止完成。状态优先级为 `FAILED`、`BLOCKED`、`PASSED`；先汇总步骤到用例，再汇总用例到顶层。
-
-完成后向用户提供既有的 `{env}-testcase-viewer.html` 链接和结果摘要。执行期间只更新 `{env}-execution-result.js`，由 Viewer 自动刷新并展示结果。
+`finalizeResult` 逐条检查 Markdown 中所有用例和步骤；缺少任一步骤结果时禁止完成。完成后向用户提供测试用例 Markdown、执行结果 JSON、用例状态摘要和截图目录链接。
