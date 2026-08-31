@@ -130,7 +130,7 @@ await resultTools.writeExecutionResult({
 
 ## 等待页面请求与 DOM 稳定
 
-在 Microsoft Edge 中使用「Agent Request Waiter」插件判断页面是否可以截图和断言。
+在 Microsoft Edge 中使用「Agent Request Waiter」插件判断页面是否可以截图和断言。先按浏览器技能连接 Edge，复用当前受控标签页 `tab`。状态读取使用 `tab.playwright.evaluate()`；发送命令使用该标签页受支持的 CDP 能力，在真实页面环境中执行。
 
 插件状态：
 
@@ -139,34 +139,78 @@ await resultTools.writeExecutionResult({
 - `WAITING`：橙色图标，Badge 为 pending 数量。
 - `ERROR`：红色图标，Badge 为 `!`。
 
-从当前页面根元素读取：
+### 读取状态
+
+每次重新读取当前页面根元素，避免页面跳转后使用旧引用：
 
 ```js
-const root = document.documentElement;
-const state = {
-  status: root.dataset.agentRequestWaiterStatus,
-  pending: Number(root.dataset.agentRequestWaiterPending),
-  roundId: root.dataset.agentRequestWaiterRoundId,
-};
+const readWaiterState = () => tab.playwright.evaluate(() => {
+  const root = document.documentElement;
+  const pending = root.dataset.agentRequestWaiterPending;
+  return {
+    status: root.dataset.agentRequestWaiterStatus,
+    pending: pending == null || pending === "" ? null : Number(pending),
+    roundId: root.dataset.agentRequestWaiterRoundId,
+  };
+});
+
+const state = await readWaiterState();
+```
+
+`status`、`roundId` 属性缺失，或 `pending` 不是非负整数时，不能用该状态判定完成。空 `roundId` 的 `READY` 仅表示空闲。
+
+### JS 布防与完成判定
+
+`tab.playwright.evaluate()` 是只读接口，不能用于派发事件。首次使用当前标签页的 CDP 能力前，读取其接口文档：
+
+```js
+const waiterCdp = await tab.capabilities.get("cdp");
+nodeRepl.write(await waiterCdp.documentation());
 ```
 
 对会产生请求的关键操作：
 
-1. 记录 ARM 前的 `roundId`。
-2. 派发 ARM 命令：
+1. 确认上一业务操作已经结束，读取并保存 ARM 前的 `roundId`。正在等待业务请求时不重新布防。
+2. 通过 CDP 发送 ARM 命令：
 
 ```js
-document.dispatchEvent(
-  new CustomEvent("agent-request-waiter-command", { detail: "ARM" }),
+const armResponse = await waiterCdp.send(
+  "Runtime.evaluate",
+  {
+    expression: `document.dispatchEvent(
+      new CustomEvent("agent-request-waiter-command", { detail: "ARM" })
+    )`,
+    returnByValue: true,
+  },
+  { timeoutMs: 5000 },
 );
+
+if (armResponse.exceptionDetails) {
+  throw new Error("Agent Request Waiter ARM 脚本执行失败");
+}
 ```
 
-3. 每 `100ms` 读取状态，直到进入 `ARMED` 且获得新的非空 `roundId`。
-4. 保存为 `armedRoundId` 后执行页面操作。
-5. 每 `500ms` 读取状态；页面跳转后重新获取根元素。响应超过 `10s` 时可降低为每 `1–2s` 一次。
+3. 在控制端每 `100ms` 调用 `readWaiterState()`，最多等待 `3s`，确认 `status === "ARMED"` 且获得不同于 ARM 前值的非空 `roundId`。脚本返回成功或 `dispatchEvent()` 返回 `true` 都不能替代此确认。
+4. 保存为 `armedRoundId` 后，通过浏览器交互接口执行页面操作；抽屉、弹窗等需先确认展开且目标可操作。
+5. 在控制端每 `500ms` 读取状态；响应超过 `10s` 时可降低为每 `1–2s` 一次。每次读取完成后再安排下一次，不在一个长时间等待的 CDP 调用中阻塞后续页面操作。
 6. 仅当 `status === "READY"`、`pending === 0`、`roundId === armedRoundId` 同时满足后截图和断言。
 
-默认 `READY` 的空 `roundId` 不代表操作完成。`WAITING` 时继续等待，不用固定延时替代。`ERROR` 时停止当前流程并报告插件错误。不产生网络请求的操作直接根据 DOM 或视觉变化判断。
+请求可能很快完成，不要求每次轮询都捕获到中间的 `WAITING`。页面跳转后仍校验同一轮次；轮次丢失或变化时停止自动判定，不把其他轮次的 `READY` 当作本次完成。
+
+等待使用用例或环境规定的超时，未指定时默认 `60s`。`WAITING` 时继续按状态等待；持续 `ARMED` 时检查页面操作是否实际触发，不能据此判定成功或盲目重复提交。达到超时仍无法确认时记录当前状态和页面证据，将步骤标为 `BLOCKED`。`ERROR` 时停止当前流程并报告插件错误。不产生网络请求的操作直接根据 DOM 或视觉变化判断。
+
+### 布防异常与图标回退
+
+ARM 未确认时，不执行业务操作。先核对受控标签页、当前 URL 和插件状态；必要时激活目标标签页并重新读取。确认没有正在等待的业务操作后，最多重试一次 JS 布防。不要为恢复插件而自动刷新包含未保存输入的页面。
+
+CDP 不可用或重试仍未确认时，可按 Computer Use 技能点击目标 Edge 标签页的插件图标。点击前必须读取最新状态：
+
+- `READY`：点击一次发起布防，再按相同规则确认新的非空 `roundId`。
+- `ARMED`：图标再次点击会取消布防并清空轮次。若已确认是本次新轮次，直接继续业务操作，不再点击；无法确认轮次归属时停止并报告。
+- `WAITING`：等待已有操作完成，不点击图标或重新发送 ARM。
+- `ERROR` 或状态无法读取：停止并报告，不以图标颜色替代轮次校验。
+
+图标回退仍无法确认布防时，将步骤标为 `BLOCKED`。回退只处理业务操作前的布防，不自动重放已执行的业务操作。
 
 ## 执行与结果判定
 
