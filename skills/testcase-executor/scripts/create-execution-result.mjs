@@ -9,6 +9,7 @@ import {
   readTestcaseMarkdown,
   requireAbsolutePath,
   serializeExecutionResult,
+  validateExecutionResult,
 } from "./testcase-data-utils.mjs";
 
 export async function createOrResumeExecutionResult({
@@ -55,6 +56,8 @@ export async function createOrResumeExecutionResult({
       resumed = true;
     }
   }
+
+  validateExecutionResult(result, { report });
 
   return {
     report,

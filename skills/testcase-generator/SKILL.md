@@ -67,6 +67,14 @@ description: 根据需求生成和维护黑盒功能测试用例 Markdown（uat-
 5. 更新已有文件时先解析并校验当前报告，通过 `case_id` 找到目标用例，并通过 `step_id` 识别已有步骤；不得根据名称、模块或步骤序号重新分配 UUID。
 6. `case_id` 和 `step_id` 只用于 Markdown 与执行结果的稳定关联，不写入 XMind 转换结果。
 
+需要生成新 UUID 时，使用 Node.js 内置的 `crypto.randomUUID()`：
+
+```bash
+node -e "console.log(require('node:crypto').randomUUID())"
+```
+
+该命令每次生成一个 UUID；每个新用例和新步骤分别执行一次，不复用输出。
+
 ## 步骤设计
 
 1. 账号权限、页面位置或数据状态只有符合“前置条件”章节的保留标准时才写入前置条件；`action` 从当前测试点所需的最小有效操作开始，只保留选择条件、输入数据、点击、勾选、粘贴、提交、保存、查询或审核等实际操作。仅当登录、导航或切换页面本身是当前测试点时，才在 `action` 中描述这些操作。

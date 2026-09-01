@@ -382,6 +382,36 @@ export function validateTestcaseReport(report, { environment } = {}) {
   if (!Array.isArray(report.testcases) || report.testcases.length === 0) {
     throw new TypeError("testcase report must contain testcases");
   }
+  const caseIds = new Set();
+  const stepIds = new Set();
+  report.testcases.forEach((testcase, caseIndex) => {
+    requireObject(testcase, `testcase report.testcases[${caseIndex}]`);
+    const caseId = requireUuid(
+      testcase.case_id,
+      `testcase report.testcases[${caseIndex}].case_id`,
+    ).toLowerCase();
+    if (caseIds.has(caseId)) {
+      throw new TypeError(`testcase report contains duplicate case_id: ${testcase.case_id}`);
+    }
+    caseIds.add(caseId);
+    if (!Array.isArray(testcase.steps) || testcase.steps.length === 0) {
+      throw new TypeError(`testcase report.testcases[${caseIndex}] must contain steps`);
+    }
+    testcase.steps.forEach((step, stepIndex) => {
+      requireObject(
+        step,
+        `testcase report.testcases[${caseIndex}].steps[${stepIndex}]`,
+      );
+      const stepId = requireUuid(
+        step.step_id,
+        `testcase report.testcases[${caseIndex}].steps[${stepIndex}].step_id`,
+      ).toLowerCase();
+      if (stepIds.has(stepId)) {
+        throw new TypeError(`testcase report contains duplicate step_id: ${step.step_id}`);
+      }
+      stepIds.add(stepId);
+    });
+  });
   if (environment) {
     const selected = normalizeEnvironment(environment).toUpperCase();
     if (report.environment !== selected) {
