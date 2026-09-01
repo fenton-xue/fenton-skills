@@ -9,19 +9,13 @@ import {
   readTestcaseMarkdown,
   requireAbsolutePath,
   requireNonEmptyString,
+  requireUuid,
   serializeExecutionResult,
   validateExecutionResult,
   validateTestcaseReport,
 } from "./testcase-data-utils.mjs";
 
 const REPORT_CASE_INDEX = new WeakMap();
-
-function requirePositiveInteger(value, field) {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new TypeError(`${field} must be a positive integer`);
-  }
-  return value;
-}
 
 function normalizeStatus(value) {
   const status = requireNonEmptyString(value, "status").toUpperCase();
@@ -40,7 +34,7 @@ function aggregateStatuses(statuses) {
 function aggregateCaseStatus(testcase, caseResult) {
   if (!caseResult) return null;
   const stepStatuses = testcase.steps.map(
-    (step) => caseResult.steps[String(step.step)]?.result,
+    (step) => caseResult.steps[step.step_id]?.result,
   );
   if (stepStatuses.some((status) => !FINAL_STATUSES.has(status))) return null;
   return aggregateStatuses(stepStatuses);
@@ -48,7 +42,7 @@ function aggregateCaseStatus(testcase, caseResult) {
 
 function refreshAggregates({ report, result }) {
   report.testcases.forEach((testcase) => {
-    const caseResult = result.cases[testcase.case_name];
+    const caseResult = result.cases[testcase.case_id];
     if (caseResult) {
       caseResult.result = aggregateCaseStatus(testcase, caseResult);
     }
@@ -60,33 +54,33 @@ function reportCaseIndex(report) {
   let index = REPORT_CASE_INDEX.get(report);
   if (!index) {
     index = new Map(
-      report.testcases.map((testcase) => [testcase.case_name, testcase]),
+      report.testcases.map((testcase) => [testcase.case_id, testcase]),
     );
     REPORT_CASE_INDEX.set(report, index);
   }
   return index;
 }
 
-function resolveReportCase(result, caseName) {
-  const normalizedCaseName = requireNonEmptyString(caseName, "caseName");
+function resolveReportCase(result, caseId) {
+  const normalizedCaseId = requireUuid(caseId, "caseId");
   const report = getAssociatedReport(result);
-  const testcase = reportCaseIndex(report).get(normalizedCaseName);
+  const testcase = reportCaseIndex(report).get(normalizedCaseId);
   if (!testcase) {
-    throw new RangeError(`caseName does not exist in testcase Markdown: ${normalizedCaseName}`);
+    throw new RangeError(`caseId does not exist in testcase Markdown: ${normalizedCaseId}`);
   }
-  return { report, testcase, caseName: normalizedCaseName };
+  return { report, testcase, caseId: normalizedCaseId };
 }
 
-function ensureCaseResult(result, caseName) {
-  const current = result.cases[caseName];
+function ensureCaseResult(result, caseId) {
+  const current = result.cases[caseId];
   if (current) {
     if (!current.steps || typeof current.steps !== "object" || Array.isArray(current.steps)) {
-      throw new TypeError(`result.cases[${JSON.stringify(caseName)}].steps must be an object`);
+      throw new TypeError(`result.cases[${JSON.stringify(caseId)}].steps must be an object`);
     }
     return current;
   }
   const created = { result: null, steps: {} };
-  result.cases[caseName] = created;
+  result.cases[caseId] = created;
   return created;
 }
 
@@ -120,12 +114,12 @@ export { readExecutionResult, readTestcaseMarkdown };
 
 export function recordCaseContext({
   result,
-  caseName,
+  caseId,
   pageName,
   pageUrl,
 }) {
-  const resolved = resolveReportCase(result, caseName);
-  const caseResult = ensureCaseResult(result, resolved.caseName);
+  const resolved = resolveReportCase(result, caseId);
+  const caseResult = ensureCaseResult(result, resolved.caseId);
   caseResult.page = requireNonEmptyString(pageName, "pageName");
   if (pageUrl !== undefined) {
     caseResult.url =
@@ -136,26 +130,28 @@ export function recordCaseContext({
 
 export function recordStep({
   result,
-  caseName,
-  stepNo,
+  caseId,
+  stepId,
   actual,
   status,
   screenshots = [],
 }) {
-  const resolved = resolveReportCase(result, caseName);
-  const normalizedStepNo = requirePositiveInteger(stepNo, "stepNo");
-  const reportStep = resolved.testcase.steps[normalizedStepNo - 1];
-  if (!reportStep || reportStep.step !== normalizedStepNo) {
+  const resolved = resolveReportCase(result, caseId);
+  const normalizedStepId = requireUuid(stepId, "stepId");
+  const reportStep = resolved.testcase.steps.find(
+    (step) => step.step_id === normalizedStepId,
+  );
+  if (!reportStep) {
     throw new RangeError(
-      `stepNo does not exist in testcase ${resolved.caseName}: ${normalizedStepNo}`,
+      `stepId does not exist in testcase ${resolved.caseId}: ${normalizedStepId}`,
     );
   }
-  const caseResult = ensureCaseResult(result, resolved.caseName);
+  const caseResult = ensureCaseResult(result, resolved.caseId);
   const normalizedScreenshots = normalizeScreenshots(
     screenshots,
     resolved.report.environment,
   );
-  caseResult.steps[String(normalizedStepNo)] = {
+  caseResult.steps[normalizedStepId] = {
     actual: requireNonEmptyString(actual, "actual"),
     result: normalizeStatus(status),
     ...(normalizedScreenshots.length > 0
@@ -173,14 +169,14 @@ export function finalizeResult({ report, result }) {
   refreshAggregates({ report, result });
 
   report.testcases.forEach((testcase) => {
-    const caseResult = result.cases[testcase.case_name];
+    const caseResult = result.cases[testcase.case_id];
     if (!caseResult) {
-      throw new Error(`Incomplete result: ${testcase.case_name} has no result entry`);
+      throw new Error(`Incomplete result: ${testcase.case_id} has no result entry`);
     }
     testcase.steps.forEach((step) => {
-      const stepResult = caseResult.steps[String(step.step)];
+      const stepResult = caseResult.steps[step.step_id];
       if (!stepResult || !FINAL_STATUSES.has(stepResult.result)) {
-        throw new Error(`Incomplete result: ${testcase.case_name} step ${step.step}`);
+        throw new Error(`Incomplete result: ${testcase.case_id} step ${step.step_id}`);
       }
     });
   });

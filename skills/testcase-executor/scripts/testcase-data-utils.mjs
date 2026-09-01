@@ -5,12 +5,22 @@ export const FINAL_STATUSES = new Set(["PASSED", "FAILED", "BLOCKED"]);
 
 const RESULT_REPORT = new WeakMap();
 const VALID_ENVIRONMENTS = new Set(["UAT", "PRE"]);
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function requireNonEmptyString(value, field) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new TypeError(`${field} must be a non-empty string`);
   }
   return value.trim();
+}
+
+export function requireUuid(value, field) {
+  const normalized = requireNonEmptyString(value, field);
+  if (!UUID_PATTERN.test(normalized)) {
+    throw new TypeError(`${field} must be a valid UUID`);
+  }
+  return normalized;
 }
 
 export function requireAbsolutePath(value, field) {
@@ -108,7 +118,24 @@ function requireMetadata(metadata, field) {
   return value.trim();
 }
 
-function parseModulePath(lines, caseName) {
+function parseStableId(lines, field, context) {
+  const pattern = new RegExp(`^\\s*\\*\\*${field}:\\*\\*\\s*(.*?)\\s*$`);
+  const matches = lines.flatMap((line, index) => {
+    const match = line.match(pattern);
+    return match ? [{ value: match[1].trim(), index }] : [];
+  });
+  if (matches.length !== 1) {
+    throw invalidMarkdown(`${context} must contain one ${field} field`);
+  }
+  try {
+    requireUuid(matches[0].value, `${context} ${field}`);
+  } catch {
+    throw invalidMarkdown(`${context} ${field} must be a valid UUID`);
+  }
+  return matches[0];
+}
+
+function parseModulePath(lines, caseName, caseIdField) {
   const headingIndex = lines.findIndex((line) => /^###\s+/.test(line));
   const headerLines = headingIndex < 0 ? lines : lines.slice(0, headingIndex);
   const fieldIndexes = headerLines.flatMap((line, index) =>
@@ -116,6 +143,15 @@ function parseModulePath(lines, caseName) {
   );
   if (fieldIndexes.length !== 1) {
     throw invalidMarkdown(`testcase "${caseName}" must contain one module_path field`);
+  }
+  const firstContentIndex = headerLines.findIndex((line) => line.trim() !== "");
+  if (firstContentIndex !== caseIdField.index) {
+    throw invalidMarkdown(
+      `testcase "${caseName}" case_id must immediately follow its heading`,
+    );
+  }
+  if (caseIdField.index > fieldIndexes[0]) {
+    throw invalidMarkdown(`testcase "${caseName}" case_id must precede module_path`);
   }
   const modulePath = [];
   for (const line of headerLines.slice(fieldIndexes[0] + 1)) {
@@ -172,6 +208,17 @@ function fieldMatch(line) {
 }
 
 function parseStepFields(lines, caseName, stepNumber) {
+  const stepIdField = parseStableId(
+    lines,
+    "step_id",
+    `testcase "${caseName}" step ${stepNumber}`,
+  );
+  const firstContentIndex = lines.findIndex((line) => line.trim() !== "");
+  if (firstContentIndex !== stepIdField.index) {
+    throw invalidMarkdown(
+      `testcase "${caseName}" step ${stepNumber} step_id must immediately follow its heading`,
+    );
+  }
   const fields = [];
   lines.forEach((line, index) => {
     const match = fieldMatch(line);
@@ -206,13 +253,21 @@ function parseStepFields(lines, caseName, stepNumber) {
   }
 
   return {
+    step_id: stepIdField.value,
     action: readField(actionField, expectedField.index),
     expected: readField(expectedField, lines.length),
   };
 }
 
 function parseTestcase(caseName, lines) {
-  const modulePath = parseModulePath(lines, caseName);
+  const headingIndex = lines.findIndex((line) => /^###\s+/.test(line));
+  const headerLines = headingIndex < 0 ? lines : lines.slice(0, headingIndex);
+  const caseIdField = parseStableId(
+    headerLines,
+    "case_id",
+    `testcase "${caseName}"`,
+  );
+  const modulePath = parseModulePath(lines, caseName, caseIdField);
   const sections = splitLevelThreeSections(lines, caseName);
   const unsupported = sections.find(
     (section) => section.title !== "前置条件" && !/^步骤\s+\d+$/.test(section.title),
@@ -244,6 +299,7 @@ function parseTestcase(caseName, lines) {
     return { step, ...parseStepFields(section.lines, caseName, step) };
   });
   return {
+    case_id: caseIdField.value,
     case_name: requireNonEmptyString(caseName, "testcase name"),
     module_path: modulePath,
     precondition,
@@ -298,6 +354,25 @@ export function parseTestcaseMarkdown(markdown) {
   );
   if (duplicate) {
     throw invalidMarkdown(`testcase name is duplicated: ${duplicate.case_name}`);
+  }
+  const duplicateCaseId = testcases.find(
+    (testcase, index) =>
+      testcases.findIndex(
+        (candidate) => candidate.case_id.toLowerCase() === testcase.case_id.toLowerCase(),
+      ) !== index,
+  );
+  if (duplicateCaseId) {
+    throw invalidMarkdown(`case_id is duplicated: ${duplicateCaseId.case_id}`);
+  }
+  const allSteps = testcases.flatMap((testcase) => testcase.steps);
+  const duplicateStepId = allSteps.find(
+    (step, index) =>
+      allSteps.findIndex(
+        (candidate) => candidate.step_id.toLowerCase() === step.step_id.toLowerCase(),
+      ) !== index,
+  );
+  if (duplicateStepId) {
+    throw invalidMarkdown(`step_id is duplicated: ${duplicateStepId.step_id}`);
   }
   return { environment, title, created_at: createdAt, testcases };
 }
@@ -378,16 +453,17 @@ export function validateExecutionResult(result, { report } = {}) {
   if (report) {
     validateTestcaseReport(report);
     reportCases = new Map(
-      report.testcases.map((testcase) => [testcase.case_name, testcase]),
+      report.testcases.map((testcase) => [testcase.case_id, testcase]),
     );
   }
 
-  Object.entries(result.cases).forEach(([caseName, caseResult]) => {
-    const reportCase = reportCases?.get(caseName);
+  Object.entries(result.cases).forEach(([caseId, caseResult]) => {
+    requireUuid(caseId, "execution result case key");
+    const reportCase = reportCases?.get(caseId);
     if (reportCases && !reportCase) {
-      throw new TypeError(`execution result contains unknown testcase: ${caseName}`);
+      throw new TypeError(`execution result contains unknown case_id: ${caseId}`);
     }
-    const caseField = `execution result.cases[${JSON.stringify(caseName)}]`;
+    const caseField = `execution result.cases[${JSON.stringify(caseId)}]`;
     requireObject(caseResult, caseField);
     requireAllowedKeys(caseResult, ["page", "url", "result", "steps"], caseField);
     if (caseResult.page !== undefined) {
@@ -400,18 +476,15 @@ export function validateExecutionResult(result, { report } = {}) {
       requireStatusOrNull(caseResult.result, `${caseField}.result`);
     }
     requireObject(caseResult.steps, `${caseField}.steps`);
-    Object.entries(caseResult.steps).forEach(([stepNumber, stepResult]) => {
-      if (
-        !/^\d+$/.test(stepNumber) ||
-        Number(stepNumber) < 1 ||
-        String(Number(stepNumber)) !== stepNumber
-      ) {
-        throw new TypeError(`${caseField}.steps contains invalid step ${stepNumber}`);
+    const reportSteps = reportCase
+      ? new Map(reportCase.steps.map((step) => [step.step_id, step]))
+      : null;
+    Object.entries(caseResult.steps).forEach(([stepId, stepResult]) => {
+      requireUuid(stepId, `${caseField}.steps key`);
+      if (reportSteps && !reportSteps.has(stepId)) {
+        throw new TypeError(`${caseField}.steps contains unknown step_id: ${stepId}`);
       }
-      if (reportCase && !reportCase.steps[Number(stepNumber) - 1]) {
-        throw new TypeError(`${caseField}.steps contains unknown step ${stepNumber}`);
-      }
-      const stepField = `${caseField}.steps[${stepNumber}]`;
+      const stepField = `${caseField}.steps[${JSON.stringify(stepId)}]`;
       requireObject(stepResult, stepField);
       requireAllowedKeys(stepResult, ["actual", "result", "screenshots"], stepField);
       requireNonEmptyString(stepResult.actual, `${stepField}.actual`);
@@ -447,15 +520,15 @@ export function serializeExecutionResult(result, { report } = {}) {
   validateExecutionResult(result, { report });
   const canonical = {
     cases: Object.fromEntries(
-      Object.entries(result.cases).map(([caseName, caseResult]) => [
-        caseName,
+      Object.entries(result.cases).map(([caseId, caseResult]) => [
+        caseId,
         {
           ...(caseResult.result !== undefined ? { result: caseResult.result } : {}),
           ...(caseResult.page !== undefined ? { page: caseResult.page } : {}),
           ...(caseResult.url !== undefined ? { url: caseResult.url } : {}),
           steps: Object.fromEntries(
-            Object.entries(caseResult.steps).map(([stepNumber, stepResult]) => [
-              stepNumber,
+            Object.entries(caseResult.steps).map(([stepId, stepResult]) => [
+              stepId,
               {
                 result: stepResult.result,
                 actual: stepResult.actual,

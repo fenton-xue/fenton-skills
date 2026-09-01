@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const VALID_ENVIRONMENTS = new Set(["UAT", "PRE"]);
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function invalid(message) {
   return new TypeError(`Invalid testcase Markdown: ${message}`);
@@ -49,6 +51,21 @@ function requireMetadata(metadata, field) {
   return value.trim();
 }
 
+function parseStableId(lines, field, context) {
+  const pattern = new RegExp(`^\\s*\\*\\*${field}:\\*\\*\\s*(.*?)\\s*$`);
+  const matches = lines.flatMap((line, index) => {
+    const match = line.match(pattern);
+    return match ? [{ value: match[1].trim(), index }] : [];
+  });
+  if (matches.length !== 1) {
+    throw invalid(`${context} must contain one ${field} field`);
+  }
+  if (!UUID_PATTERN.test(matches[0].value)) {
+    throw invalid(`${context} ${field} must be a valid UUID`);
+  }
+  return matches[0];
+}
+
 function splitLevelThreeSections(lines, caseName) {
   const sections = [];
   let current = null;
@@ -82,7 +99,7 @@ function splitLevelThreeSections(lines, caseName) {
   return sections;
 }
 
-function parseModulePath(lines, caseName) {
+function parseModulePath(lines, caseName, caseIdField) {
   const headingIndex = lines.findIndex((line) => /^###\s+/.test(line));
   const headerLines = headingIndex < 0 ? lines : lines.slice(0, headingIndex);
   const fieldIndexes = headerLines.flatMap((line, index) =>
@@ -90,6 +107,13 @@ function parseModulePath(lines, caseName) {
   );
   if (fieldIndexes.length !== 1) {
     throw invalid(`testcase "${caseName}" must contain one module_path field`);
+  }
+  const firstContentIndex = headerLines.findIndex((line) => line.trim() !== "");
+  if (firstContentIndex !== caseIdField.index) {
+    throw invalid(`testcase "${caseName}" case_id must immediately follow its heading`);
+  }
+  if (caseIdField.index > fieldIndexes[0]) {
+    throw invalid(`testcase "${caseName}" case_id must precede module_path`);
   }
   const modulePath = [];
   for (const line of headerLines.slice(fieldIndexes[0] + 1)) {
@@ -111,6 +135,17 @@ function fieldMatch(line) {
 }
 
 function parseStepFields(lines, caseName, stepNumber) {
+  const stepIdField = parseStableId(
+    lines,
+    "step_id",
+    `testcase "${caseName}" step ${stepNumber}`,
+  );
+  const firstContentIndex = lines.findIndex((line) => line.trim() !== "");
+  if (firstContentIndex !== stepIdField.index) {
+    throw invalid(
+      `testcase "${caseName}" step ${stepNumber} step_id must immediately follow its heading`,
+    );
+  }
   const fields = [];
   lines.forEach((line, index) => {
     const match = fieldMatch(line);
@@ -144,6 +179,7 @@ function parseStepFields(lines, caseName, stepNumber) {
   }
 
   return {
+    step_id: stepIdField.value,
     action: readField(actionField, expectedField.index),
     expected: readField(expectedField, lines.length),
   };
@@ -151,7 +187,14 @@ function parseStepFields(lines, caseName, stepNumber) {
 
 function parseTestcase(caseName, lines) {
   if (!caseName) throw invalid("testcase name must not be empty");
-  const modulePath = parseModulePath(lines, caseName);
+  const headingIndex = lines.findIndex((line) => /^###\s+/.test(line));
+  const headerLines = headingIndex < 0 ? lines : lines.slice(0, headingIndex);
+  const caseIdField = parseStableId(
+    headerLines,
+    "case_id",
+    `testcase "${caseName}"`,
+  );
+  const modulePath = parseModulePath(lines, caseName, caseIdField);
   const sections = splitLevelThreeSections(lines, caseName);
   const allowedSection = (title) => title === "前置条件" || /^步骤\s+\d+$/.test(title);
   const unsupported = sections.find((section) => !allowedSection(section.title));
@@ -178,6 +221,7 @@ function parseTestcase(caseName, lines) {
     return { step, ...parseStepFields(section.lines, caseName, step) };
   });
   return {
+    case_id: caseIdField.value,
     case_name: caseName,
     module_path: modulePath,
     precondition,
@@ -229,6 +273,25 @@ export function parseTestcaseMarkdown(markdown) {
   );
   if (duplicate) {
     throw invalid(`testcase name is duplicated: ${duplicate.case_name}`);
+  }
+  const duplicateCaseId = testcases.find(
+    (testcase, index) =>
+      testcases.findIndex(
+        (candidate) => candidate.case_id.toLowerCase() === testcase.case_id.toLowerCase(),
+      ) !== index,
+  );
+  if (duplicateCaseId) {
+    throw invalid(`case_id is duplicated: ${duplicateCaseId.case_id}`);
+  }
+  const allSteps = testcases.flatMap((testcase) => testcase.steps);
+  const duplicateStepId = allSteps.find(
+    (step, index) =>
+      allSteps.findIndex(
+        (candidate) => candidate.step_id.toLowerCase() === step.step_id.toLowerCase(),
+      ) !== index,
+  );
+  if (duplicateStepId) {
+    throw invalid(`step_id is duplicated: ${duplicateStepId.step_id}`);
   }
 
   return {

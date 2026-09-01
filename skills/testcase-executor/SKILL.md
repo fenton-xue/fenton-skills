@@ -30,12 +30,15 @@ description: 执行 testcase-generator 生成的 UAT 或 PRE 黑盒功能测试�
 
 - frontmatter 包含有效的 `environment`、`title`、`created_at`，且环境与当前选择一致。
 - 一级标题为“测试用例”，至少存在一条二级标题格式的用例。
-- 报告内完整用例名称唯一；该名称是执行结果中的关联键。
+- 报告内完整用例名称唯一；名称允许修改，不作为执行结果关联键。
+- 每条用例的二级标题后包含唯一且格式合法的 `**case_id:** <UUID>`；每个步骤标题后包含唯一且格式合法的 `**step_id:** <UUID>`。
 - `module_path` 非空，前置条件区块存在。
 - 每条用例至少有一个步骤，步骤从 1 开始连续编号。
 - 每个步骤包含非空的 `action` 和 `expected`。
 
 Markdown 中的原生有序列表和换行按原内容读取。执行时按语义处理分点内容，不把 Markdown 标记当作页面输入。
+
+执行器只校验并使用 testcase-generator 提供的稳定 ID，不生成、修改或迁移 `case_id` 和 `step_id`。缺失、重复或非法 UUID 时停止执行。
 
 ## 创建或恢复执行结果
 
@@ -52,29 +55,55 @@ node "<testcase-executor目录>/scripts/create-execution-result.mjs" \
 1. 读取并校验 `测试用例/<env>-testcases.md`。
 2. 创建 `测试用例/execute-testcase/<env>-screenshots/`。
 3. 创建或恢复 `测试用例/execute-testcase/<env>-execution-result.json`。
-4. 已有结果存在时，校验其中的用例名称和步骤编号，不覆盖原有记录。
+4. 已有结果存在时，按 `case_id` 和 `step_id` 校验关联，不覆盖原有记录。
 
 新建结果只包含空的 `cases` 对象。尚未执行的用例和步骤不预先写入。结果格式由脚本维护：
 
-- `cases` 以完整用例名称为键。
+- `cases` 以 `case_id` 为键，每条用例的 `steps` 以 `step_id` 为键。
 - 用例记录可包含 `page`、`url`、`result` 和 `steps`。
 - 步骤记录包含 `result`、`actual`，有证据时包含 `screenshots`。
 - 截图记录包含 `name` 和相对于执行结果目录的 `path`。
 
+```json
+{
+  "cases": {
+    "550e8400-e29b-41d4-a716-446655440001": {
+      "result": "PASSED",
+      "page": "订单审核页",
+      "url": "https://example.test/orders/review",
+      "steps": {
+        "550e8400-e29b-41d4-a716-446655440101": {
+          "result": "PASSED",
+          "actual": "页面展示22条结果",
+          "screenshots": [
+            {
+              "name": "uat_case01_step01_01_result.png",
+              "path": "uat-screenshots/uat_case01_step01_01_result.png"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
 不要手写、拼接或直接覆写执行结果 JSON。
+
+不兼容以用例名称为 `cases` 键或以数字步骤编号为 `steps` 键的旧格式。读取或恢复时遇到旧键、非法 UUID 或 Markdown 中不存在的 UUID，直接报错，不自动迁移。只要稳定 ID 不变，用例改名以及步骤插入、删除或重排后，已有执行记录仍与原实体关联。
 
 ## 补充执行上下文并 Review
 
 1. 根据 `module_path`、项目上下文和页面知识，为每条用例确定明确的页面名称。
 2. 已进入目标页面时记录当前页面 URL；尚未进入时可以暂不写 URL。
-3. 使用 `recordCaseContext` 写入页面上下文并原子保存结果。
+3. 使用 `recordCaseContext` 按 `caseId` 写入页面上下文并原子保存结果。
 4. 向用户提供环境、用例数量、页面规划和待确认项，收到明确确认后再执行页面操作。
 
 用户提出修改时更新同一 JSON，并再次提交 Review。
 
 ## 记录执行结果
 
-使用 [scripts/result-record.mjs](scripts/result-record.mjs) 读取 Markdown 和结果。读取结果时必须传入 Markdown 解析所得报告，使记录函数能够校验完整用例名称和步骤编号：
+使用 [scripts/result-record.mjs](scripts/result-record.mjs) 读取 Markdown 和结果。读取结果时必须传入 Markdown 解析所得报告，使记录函数能够校验 `caseId` 和 `stepId`：
 
 ```js
 var resultTools = await import(
@@ -92,15 +121,15 @@ var executionResult = await resultTools.readExecutionResult(resultPath, {
 
 resultTools.recordCaseContext({
   result: executionResult,
-  caseName: "#84313-01-测试点描述",
+  caseId: "550e8400-e29b-41d4-a716-446655440001",
   pageName: "订单审核页",
   pageUrl: "https://example.test/orders/review",
 });
 
 resultTools.recordStep({
   result: executionResult,
-  caseName: "#84313-01-测试点描述",
-  stepNo: 1,
+  caseId: "550e8400-e29b-41d4-a716-446655440001",
+  stepId: "550e8400-e29b-41d4-a716-446655440101",
   actual: "页面展示22条结果",
   status: "PASSED",
   screenshots: [
@@ -120,8 +149,8 @@ await resultTools.writeExecutionResult({
 
 `recordStep` 强制校验：
 
-- `caseName` 存在于 Markdown，且使用完整用例名称精确关联。
-- `stepNo` 存在于对应用例。
+- `caseId` 是合法 UUID，且存在于 Markdown。
+- `stepId` 是合法 UUID，且属于对应 `caseId`。
 - `actual` 非空。
 - `status` 为 `PASSED`、`FAILED` 或 `BLOCKED`。
 - 截图包含非空的 `name` 和 `path`，路径位于当前环境的截图目录。
