@@ -42,8 +42,9 @@ export function createXmindMarkdown(report) {
     const stepLevel = testcaseLevel + 1;
     const expectedLevel = stepLevel + 1;
     lines.push(`${prefix(testcaseLevel)}${caseName(testcase.case_name)}`);
-    if (testcase.precondition.trim() !== "-") {
-      lines.push(`${prefix(stepLevel)}pc${compactContent(testcase.precondition)}`);
+    const precondition = testcase.precondition.trim();
+    if (precondition && precondition !== "-") {
+      lines.push(`${prefix(stepLevel)}pc${compactContent(precondition)}`);
     }
     lines.push(`${prefix(stepLevel)}tp${DEFAULT_PRIORITY}`);
     testcase.steps.forEach((step) => {

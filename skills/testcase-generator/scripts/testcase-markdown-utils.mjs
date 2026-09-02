@@ -52,7 +52,7 @@ function requireMetadata(metadata, field) {
 }
 
 function parseStableId(lines, field, context) {
-  const pattern = new RegExp(`^\\s*\\*\\*${field}:\\*\\*\\s*(.*?)\\s*$`);
+  const pattern = new RegExp(`^\\s*${field}\\s*:\\s*(.*?)\\s*$`);
   const matches = lines.flatMap((line, index) => {
     const match = line.match(pattern);
     return match ? [{ value: match[1].trim(), index }] : [];
@@ -102,28 +102,21 @@ function splitLevelThreeSections(lines, caseName) {
 function parseModulePath(lines, caseName, caseIdField) {
   const headingIndex = lines.findIndex((line) => /^###\s+/.test(line));
   const headerLines = headingIndex < 0 ? lines : lines.slice(0, headingIndex);
-  const fieldIndexes = headerLines.flatMap((line, index) =>
-    /^\s*\*\*module_path:\*\*\s*$/.test(line) ? [index] : [],
-  );
-  if (fieldIndexes.length !== 1) {
+  const fieldMatches = headerLines.flatMap((line, index) => {
+    const match = line.match(/^\s*module_path\s*:\s*(.*?)\s*$/);
+    return match ? [{ index, value: match[1].trim() }] : [];
+  });
+  if (fieldMatches.length !== 1) {
     throw invalid(`testcase "${caseName}" must contain one module_path field`);
   }
   const firstContentIndex = headerLines.findIndex((line) => line.trim() !== "");
   if (firstContentIndex !== caseIdField.index) {
     throw invalid(`testcase "${caseName}" case_id must immediately follow its heading`);
   }
-  if (caseIdField.index > fieldIndexes[0]) {
+  if (caseIdField.index > fieldMatches[0].index) {
     throw invalid(`testcase "${caseName}" case_id must precede module_path`);
   }
-  const modulePath = [];
-  for (const line of headerLines.slice(fieldIndexes[0] + 1)) {
-    if (line.trim() === "") continue;
-    const match = line.match(/^\s*[-*]\s+(.+?)\s*$/);
-    if (!match || match[1].trim() === "") {
-      throw invalid(`testcase "${caseName}" module_path must be a Markdown unordered list`);
-    }
-    modulePath.push(match[1].trim());
-  }
+  const modulePath = fieldMatches[0].value.split(/\s*\/\s*/).map((item) => item.trim()).filter(Boolean);
   if (modulePath.length === 0) {
     throw invalid(`testcase "${caseName}" module_path must contain at least one item`);
   }
@@ -131,7 +124,7 @@ function parseModulePath(lines, caseName, caseIdField) {
 }
 
 function fieldMatch(line) {
-  return line.match(/^\s*(?:\*\*|__)(action|expected):(?:\*\*|__)\s*(.*?)\s*$/);
+  return line.match(/^\s*(action|expected)\s*:\s*(.*?)\s*$/);
 }
 
 function parseStepFields(lines, caseName, stepNumber) {
@@ -206,9 +199,6 @@ function parseTestcase(caseName, lines) {
     throw invalid(`testcase "${caseName}" must contain one 前置条件 section`);
   }
   const precondition = preconditions[0].lines.join("\n").trim();
-  if (precondition === "") {
-    throw invalid(`testcase "${caseName}" precondition must not be empty; use - when none`);
-  }
   const stepSections = sections.filter((section) => /^步骤\s+\d+$/.test(section.title));
   if (stepSections.length === 0) {
     throw invalid(`testcase "${caseName}" must contain at least one step`);
@@ -249,17 +239,11 @@ export function parseTestcaseMarkdown(markdown) {
 
   const body = normalized.slice(frontmatterMatch[0].length);
   const levelOneHeadings = [...body.matchAll(/^#\s+(.+?)\s*$/gm)];
-  if (
-    levelOneHeadings.length !== 1 ||
-    levelOneHeadings[0][1].trim() !== "测试用例"
-  ) {
-    throw invalid('document must contain exactly one level-one heading "测试用例"');
+  if (levelOneHeadings.length > 0) {
+    throw invalid('document must not contain a level-one heading');
   }
   const caseMatches = [...body.matchAll(/^##\s+(.+?)\s*$/gm)];
   if (caseMatches.length === 0) throw invalid("at least one testcase is required");
-  if (levelOneHeadings[0].index > caseMatches[0].index) {
-    throw invalid('level-one heading "测试用例" must appear before all testcases');
-  }
 
   const testcases = caseMatches.map((match, index) => {
     const start = match.index + match[0].length;
