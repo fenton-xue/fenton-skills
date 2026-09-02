@@ -64,7 +64,7 @@ description: 根据需求生成和维护黑盒功能测试用例 Markdown（uat-
 2. 修改用例名称、`module_path`、前置条件、`action`、`expected` 或步骤顺序时，保留对应实体原有 UUID。
 3. 插入步骤只为新步骤生成 `step_id`；保留其他步骤的 `step_id`，再按当前顺序重新连续编号标题。
 4. 删除后重新创建的用例或步骤视为新实体，必须生成新的 UUID，不复用已删除实体的 ID。
-5. 更新已有文件时先解析并校验当前报告，通过 `case_id` 找到目标用例，并通过 `step_id` 识别已有步骤；不得根据名称、模块或步骤序号重新分配 UUID。
+5. 更新已有文件时先解析当前报告，通过 `case_id` 找到目标用例，并通过 `step_id` 识别已有步骤；不得根据名称、模块或步骤序号重新分配 UUID。
 6. `case_id` 和 `step_id` 只用于 Markdown 与执行结果的稳定关联，不写入 XMind 转换结果。
 
 需要生成新 UUID 时，使用 Node.js 内置的 `crypto.randomUUID()`：
@@ -117,7 +117,7 @@ node -e "console.log(require('node:crypto').randomUUID())"
 
 ## 校验与 XMind 转换
 
-生成或更新后运行 Markdown 校验：
+每次生成一批新用例后，对更新后的完整 Markdown 运行一次校验。Review 期间只修改已有用例时不运行校验；Review 中新增用例时，新增完成后运行一次：
 
 ```bash
 node "<testcase-generator目录>/scripts/testcase-markdown-utils.mjs" "<需求目录>/测试用例/<uat|pre>-testcases.md"
@@ -145,10 +145,10 @@ node "<testcase-generator目录>/scripts/create-xmind-markdown.mjs" "<需求目�
 3. 读取已有 Markdown；不存在时创建 UAT 文件。
 4. 规划模块结构和测试点；更新已有报告时先按 `case_id` 建立用例索引，并按 `step_id` 建立步骤索引。
 5. 生成或更新测试用例；只为新实体生成 UUID，保留所有既有实体的 UUID。
-6. 使用校验脚本检查 Markdown 格式、用例名称唯一性、UUID 格式与唯一性和步骤连续性。
+6. 本批生成了新用例时，使用校验脚本对完整 Markdown 检查一次格式、用例名称唯一性、UUID 格式与唯一性和步骤连续性；仅根据 Review 修改已有用例时跳过校验。
 7. 提供用例数量、变更摘要及 Markdown 文件链接。
 8. 暂停等待用户 Review。
-9. 根据 Review 更新同一 Markdown。
+9. 根据 Review 更新同一 Markdown；仅修改已有用例时不运行校验，新增用例时在新增完成后运行一次。
 10. 指定小标题模式下，等待用户说“下一个”后再处理下一批。
 
 指定小标题模式一次只处理一个阶段；整篇文档模式必须先获得用户确认。默认流程只创建或更新 UAT Markdown，不创建 PRE 文件或任何执行结果。
