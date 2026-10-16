@@ -1,0 +1,4 @@
+interface:
+  display_name: "Grok Image Gen"
+  short_description: "通过 CLI Proxy 调用 grok-imagine-image-2.0 生成图片"
+  default_prompt: "使用 $grok-image-gen 调用 grok-imagine-image-2.0 生成一张图片。"

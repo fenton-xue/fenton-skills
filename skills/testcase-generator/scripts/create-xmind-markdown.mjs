@@ -16,12 +16,32 @@ function caseName(value) {
   return /^cs(?=#)/i.test(name) ? name : `cs${name}`;
 }
 
-function compactContent(value) {
+function escapeTopicLine(line) {
+  return line
+    .replace(/^(\d+)\.\s+/, "$1.")
+    .replace(/^([-+*])\s+/, "$1");
+}
+
+function contentLines(value) {
   return value
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
-    .join("<br>");
+    .map(escapeTopicLine);
+}
+
+function formatTopic(level, value) {
+  const lines = contentLines(value);
+  if (lines.length === 0) return [];
+  const indent = "    ".repeat(level - 1);
+  const result = [];
+  lines.forEach((line, index) => {
+    const isLast = index === lines.length - 1;
+    const suffix = isLast ? "" : "\\";
+    result.push(index === 0 ? `${indent}- ${line}${suffix}` : `${indent}  ${line}${suffix}`);
+    if (!isLast) result.push(`${indent}  \\`);
+  });
+  return result;
 }
 
 export function createXmindMarkdown(report) {
@@ -44,12 +64,12 @@ export function createXmindMarkdown(report) {
     lines.push(`${prefix(testcaseLevel)}${caseName(testcase.case_name)}`);
     const precondition = testcase.precondition.trim();
     if (precondition && precondition !== "-") {
-      lines.push(`${prefix(stepLevel)}pc${compactContent(precondition)}`);
+      lines.push(...formatTopic(stepLevel, `pc${precondition}`));
     }
     lines.push(`${prefix(stepLevel)}tp${DEFAULT_PRIORITY}`);
     testcase.steps.forEach((step) => {
-      lines.push(`${prefix(stepLevel)}${compactContent(step.action)}`);
-      lines.push(`${prefix(expectedLevel)}${compactContent(step.expected)}`);
+      lines.push(...formatTopic(stepLevel, step.action));
+      lines.push(...formatTopic(expectedLevel, step.expected));
     });
   });
 

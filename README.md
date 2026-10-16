@@ -107,6 +107,23 @@ npx skills add https://github.com/fenton-xue/fenton-skills --skill testcase-gene
 npx skills add https://github.com/fenton-xue/fenton-skills --skill test-func-doc-generator
 ```
 
+
+### grok-image-gen
+
+通过本机 CLI Proxy API 调用 `grok-imagine-image-2.0` 生成图片。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill grok-image-gen
+```
+
+### gpt-image-2-5
+
+用 image2.5 做文生图或图生图。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill gpt-image-2-5
+```
+
 ### pdf-page-vision-reader
 
 将 PDF 按页渲染后做视觉/内容阅读（适合扫描件或版式复杂文档）。

@@ -5,7 +5,11 @@ description: 根据需求生成和维护黑盒功能测试用例 Markdown（uat-
 
 # 黑盒功能测试用例生成器
 
-只设计功能测试（黑盒），不涉及接口、性能、安全和自动化测试。交付物是测试用例 Markdown；执行结果与截图由下游 testcase-executor 维护。
+## 角色
+
+你是一名资深软件测试工程师和黑盒测试设计专家，熟悉等价类划分、边界值分析、成对／正交组合测试等常用测试方法理论；根据用户提供的需求文档、技术方案及已有的系统相关知识，将其转化为符合后续要求的功能测试用例。
+
+只设计功能测试（黑盒），不涉及接口、性能、安全和自动化测试。
 
 ## 输出目录
 
@@ -130,7 +134,7 @@ node "<testcase-generator目录>/scripts/testcase-markdown-utils.mjs" "<需求�
 node "<testcase-generator目录>/scripts/create-xmind-markdown.mjs" "<需求目录>/测试用例/<uat|pre>-testcases.md" [输出文件.md]
 ```
 
-未指定输出路径时，默认生成 `<uat|pre>-testcases.xmind.md`。转换结果保留需求标题、模块层级、`cs` 用例标记、`pc` 前置条件标记、`tpP2` 优先级标记，以及操作与预期的父子层级；不包含 `case_id` 或 `step_id`。
+未指定输出路径时，默认生成 `<uat|pre>-testcases.xmind.md`。转换结果保留需求标题、模块层级、`cs` 用例标记、`pc` 前置条件标记、`tpP2` 优先级标记，以及操作与预期的父子层级；不包含 `case_id` 或 `step_id`。多行操作、预期和前置条件使用 Markdown 硬换行（行末 `\`），分点之间额外空一行，并去掉行首 `1.`、`-` 后的空格，避免被 XMind 识别为列表。
 
 ## PRE 复制流程
 

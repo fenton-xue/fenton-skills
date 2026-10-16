@@ -1,0 +1,4 @@
+interface:
+  display_name: "GPT Image 2.5"
+  short_description: "按提示词调用 image2.5 进行文生图或图生图"
+  default_prompt: "使用 $gpt-image-2-5 调用 gpt-image-2.5 生成一张图片。"
