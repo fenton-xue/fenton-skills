@@ -5,6 +5,7 @@
 
 子命令：
   check    检查凭证是否可用
+  access   查机器人对这张表有没有编辑权限（只读）。没有则退出码 3，要先把机器人加为协作者
   inspect  读已有表格的表头，告诉你哪些表头认得、该取哪些字段（不写任何东西）。
            表头由程序按名称和别名表匹配；认不出的列在 unmatched_headers 里，由 AI 判断意思后用 --map 补上
   fill     按表头把数据追加到已有表格：只写表头里存在的字段，没有表头的字段直接跳过。
@@ -42,6 +43,10 @@ DEFAULT_MAX_ROWS = 100  # 一次最多写多少行
 
 class Fail(Exception):
     pass
+
+
+class NoAccess(Fail):
+    """机器人在这张表上没有「可编辑」权限。退出码 3，表示要先把机器人加为协作者。"""
 
 
 # ---------- 飞书接口 ----------
@@ -105,6 +110,46 @@ class Feishu:
 
 
 # ---------- 表格定位与读取 ----------
+
+NOACCESS_MSG = ("机器人在这张表上没有「可编辑」权限，没有写入任何内容。按 SKILL.md「机器人没有编辑权限时」处理："
+                "先自己用浏览器把机器人（名字见 bot_name）加为「可编辑」协作者（步骤见 references/add-bot-to-sheet.md），"
+                "加完用 access 子命令确认；加不上再请用户手动加")
+
+
+def bot_access(fs, ss):
+    """用飞书自带的权限检查接口（只读，不改任何东西）查机器人对这张表有没有编辑 / 查看权限。
+
+    读表头走的是「组织内获得链接的人可阅读」，所以没加机器人也读得到；只有 can_edit 才说明能写。
+    接口查询失败时返回 None，不当成没权限（让后面真正写入时再按 91403 报错）。
+    """
+    out = {}
+    for action, key in (("edit", "can_edit"), ("view", "can_view")):
+        try:
+            d = fs.call("GET", f"/open-apis/drive/v1/permissions/{ss}/members/auth",
+                        query={"type": "sheet", "action": action})
+            out[key] = bool(d.get("auth_result"))
+        except Fail:
+            out[key] = None
+    return out
+
+
+def bot_name(fs):
+    """机器人（飞书应用）的名字，也就是在表格「分享」面板里搜索它时要输入的名字。查不到返回 None。"""
+    try:
+        return (fs._request("GET", "/open-apis/bot/v3/info").get("bot") or {}).get("app_name")
+    except Fail:
+        return None
+
+
+def access_fields(fs, ss):
+    a = bot_access(fs, ss)
+    res = {"bot_can_edit": a["can_edit"]}
+    if a["can_edit"] is False:
+        res["needs_access"] = True
+        res["bot_name"] = bot_name(fs)
+        res["access_message"] = NOACCESS_MSG
+    return res
+
 
 def locate(fs, a):
     src = (a.url or a.token or "").strip()
@@ -478,6 +523,7 @@ def cmd_inspect(a):
     unmatched = [h for h, f in zip(hdr, fields) if h and not f]
     return {
         "spreadsheet_token": sh["ss"], "sheet": sh["title"], "headers": hdr,
+        **access_fields(fs, sh["ss"]),
         "matched": [{"col": col_letter(i), "header": h, "field": f} for i, (h, f) in enumerate(zip(hdr, fields)) if f],
         "unmatched_headers": unmatched,
         "mapped_by_map": [{"header": h, "field": f} for h, f in zip(hdr, fields) if h and f and norm(h) in hmap],
@@ -490,11 +536,30 @@ def cmd_inspect(a):
     }
 
 
+def cmd_access(a):
+    fs = Feishu()
+    ss = locate(fs, a)
+    acc = bot_access(fs, ss)
+    res = {"spreadsheet_token": ss, "bot_can_edit": acc["can_edit"], "bot_can_view": acc["can_view"]}
+    if acc["can_edit"] is False:
+        res.update(needs_access=True, bot_name=bot_name(fs), status="机器人没有编辑权限，写入会失败",
+                   access_message=NOACCESS_MSG)
+    elif acc["can_edit"]:
+        res["status"] = "机器人有编辑权限，可以写入"
+    else:
+        res["status"] = "权限检查接口没有返回结果，无法确定；可以直接尝试写入，失败再按 91403 处理"
+    return res
+
+
 def cmd_fill(a):
     records, unknown = load_records(a.input)
     fs = Feishu()
-    sh = pick_sheet(fs, locate(fs, a), a.sheet)
-    res = fill(fs, sh, records, not a.write, a.max_rows, a.on_duplicate, parse_map(a.map))
+    ss = locate(fs, a)
+    acc = access_fields(fs, ss)
+    if a.write and acc["bot_can_edit"] is False:
+        raise NoAccess(NOACCESS_MSG)
+    sh = pick_sheet(fs, ss, a.sheet)
+    res = {**acc, **fill(fs, sh, records, not a.write, a.max_rows, a.on_duplicate, parse_map(a.map))}
     if unknown:
         res["unknown_record_keys"] = unknown
     return res
@@ -610,6 +675,10 @@ def cmd_comments(a):
             raise Fail(f"表格已创建但分享失败（{created_doc['url']}，现在只有应用能打开）: {e}")
     else:
         ss = locate(fs, a)
+        acc = access_fields(fs, ss)
+        if not dry and acc["bot_can_edit"] is False:
+            raise NoAccess(NOACCESS_MSG)
+        plan.update(acc)
     entries = list_sheets(fs, ss)
     if not entries:
         raise Fail("表格里没有子表")
@@ -707,6 +776,8 @@ def main():
         p.add_argument("--sheet", help="子表名称或 sheet_id，缺省为第一个可见子表")
 
     sub.add_parser("check", help="检查飞书凭证能否换到 token（不读写任何表格）")
+    p = sub.add_parser("access", help="检查机器人对这张表有没有编辑权限（只读，不改任何东西）；没有则退出码 3")
+    target(p)
     map_help = ("表头对应关系：表头原文=字段名，可重复。程序认不出的表头，由 AI 判断意思相同后用它补上，"
                 "例如 --map \"曝光数据=曝光量\"。只对这次运行有效，不会改表头")
     p = sub.add_parser("inspect", help="读表头并匹配字段")
@@ -741,12 +812,17 @@ def main():
     for stream in (sys.stdout, sys.stderr, sys.stdin):
         stream.reconfigure(encoding="utf-8", errors="replace")
     try:
-        res = {"check": cmd_check, "inspect": cmd_inspect, "fill": cmd_fill, "create": cmd_create,
+        res = {"check": cmd_check, "access": cmd_access, "inspect": cmd_inspect, "fill": cmd_fill, "create": cmd_create,
                "comments": cmd_comments}[a.cmd](a)
+    except NoAccess as e:
+        print(f"[feishu_sheet] {e}", file=sys.stderr)
+        return 3
     except Fail as e:
         print(f"[feishu_sheet] {e}", file=sys.stderr)
         return 1
     print(json.dumps(res, ensure_ascii=False, indent=2))
+    if res.get("needs_access"):
+        return 3
     return 2 if res.get("needs_decision") else 0
 
 
