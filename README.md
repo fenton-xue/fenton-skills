@@ -99,6 +99,30 @@ npx skills add https://github.com/fenton-xue/fenton-skills --skill ones
 npx skills add https://github.com/fenton-xue/fenton-skills --skill testcase-generator
 ```
 
+### test-dispatch
+
+测试工作流的调度员：对齐 ONES 看板与本地工单目录，按 `状态.md` 安排理解设计会话和执行会话，输出需要用户处理的清单。只能手动输入 `/test-dispatch` 触发。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill test-dispatch
+```
+
+### test-design
+
+测试工作流的理解设计会话：下载 ONES 需求到本地、写需求理解与疑问清单、输出测试点并按需调用 testcase-generator 写用例。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill test-design
+```
+
+### test-execute
+
+测试工作流的执行会话：按测试点或用例在 UAT 用 ego-browser 和数据库执行测试，按造数规则准备数据并留好回滚 SQL，记录每轮结果、卡点和疑似缺陷，用户复核后写缺陷草稿。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill test-execute
+```
+
 ### test-func-doc-generator
 
 根据需求文档和测试用例文档生成测试功能文档。
@@ -130,4 +154,12 @@ npx skills add https://github.com/fenton-xue/fenton-skills --skill gpt-image-2-5
 
 ```bash
 npx skills add https://github.com/fenton-xue/fenton-skills --skill pdf-page-vision-reader
+```
+
+### xhs-metrics-to-feishu
+
+采集小红书博主/笔记投放数据（昵称、ID、粉丝量、曝光、阅读、互动等 14 个字段），并写入飞书表格；按发布链接去重，已有行只更新指标。采集部分目前是占位（`--mock` 联调），飞书写入与配置已用真实飞书验证。
+
+```bash
+npx skills add https://github.com/fenton-xue/fenton-skills --skill xhs-metrics-to-feishu
 ```
