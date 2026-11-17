@@ -156,10 +156,10 @@ npx skills add https://github.com/fenton-xue/fenton-skills --skill gpt-image-2-5
 npx skills add https://github.com/fenton-xue/fenton-skills --skill pdf-page-vision-reader
 ```
 
-### xhs-metrics-to-feishu
+### xhs-pgy-to-feishu
 
-采集小红书博主/笔记投放数据（昵称、ID、粉丝量、曝光、阅读、互动等 14 个字段），并写入飞书表格；按发布链接去重，已有行只更新指标。采集部分目前是占位（`--mock` 联调），飞书写入与配置已用真实飞书验证。
+给一个小红书博主（昵称、小红书号、userId 或主页链接），经 Rnote 蒲公英接口查出投放数据（粉丝量、笔记的曝光/阅读/点赞/收藏/评论/转发、中位数、预估 CPM 等），并写入飞书电子表格；也可抓单篇笔记的评论，写入「评论」工作表。支持新建表格，或按用户已有表格的表头回填。写入有护栏（默认只写表尾空白区，帖子重复时先问更新还是追加）。需要配置 `RNOTE_API_KEY`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET`，脚本只依赖 Python 3 标准库。
 
 ```bash
-npx skills add https://github.com/fenton-xue/fenton-skills --skill xhs-metrics-to-feishu
+npx skills add https://github.com/fenton-xue/fenton-skills --skill xhs-pgy-to-feishu
 ```
