@@ -112,8 +112,8 @@ class Feishu:
 # ---------- 表格定位与读取 ----------
 
 NOACCESS_MSG = ("机器人在这张表上没有「可编辑」权限，没有写入任何内容。按 SKILL.md「机器人没有编辑权限时」处理："
-                "先自己用浏览器把机器人（名字见 bot_name）加为「可编辑」协作者（步骤见 references/add-bot-to-sheet.md），"
-                "加完用 access 子命令确认；加不上再请用户手动加")
+                "把 SKILL.md 里的步骤原样给用户，请他在飞书里手动把机器人（名字见 bot_name）加为这张表的「可编辑」协作者，"
+                "用户说加好了，再用 access 子命令确认")
 
 
 def bot_access(fs, ss):
